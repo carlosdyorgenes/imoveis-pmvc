@@ -1,0 +1,149 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  MASTER
+  PADRAO
+}
+
+enum TipoImovel {
+  PROPRIO
+  LOCADO
+}
+
+enum ZonaImovel {
+  URBANO
+  RURAL
+}
+
+enum StatusTarefa {
+  PENDENTE
+  EM_ANDAMENTO
+  CONCLUIDO
+}
+
+model User {
+  id         String   @id @default(uuid())
+  name       String
+  email      String   @unique
+  password   String
+  role       UserRole @default(PADRAO)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  ocorrencias   Ocorrencia[]
+  tarefaCards   TarefaCard[]
+  logs          Log[]
+  tarefasCreated Tarefa[]
+
+  @@map("users")
+}
+
+model Imovel {
+  id                    String     @id @default(uuid())
+  inscricaoImobiliaria  String     @unique
+  registroCartorario    String?
+  cartorioImoveis       String?
+  logradouro            String
+  numero                String?
+  complemento           String?
+  bairro                String
+  cidade                String
+  estado                String
+  cep                   String?
+  secretaria            String
+  tipo                  TipoImovel
+  zona                  ZonaImovel
+  latitude              Float?
+  longitude             Float?
+  area                  Float?
+  observacoes           String?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  documentos    Documento[]
+  ocorrencias   Ocorrencia[]
+  tarefaCards   TarefaCard[]
+
+  @@map("imoveis")
+}
+
+model Documento {
+  id          String   @id @default(uuid())
+  imovelId    String
+  descricao   String
+  linkDrive   String
+  createdAt   DateTime @default(now())
+
+  imovel      Imovel   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+
+  @@map("documentos")
+}
+
+model Ocorrencia {
+  id          String   @id @default(uuid())
+  imovelId    String
+  userId      String
+  descricao   String
+  tipo        String   @default("MANUAL")
+  createdAt   DateTime @default(now())
+
+  imovel      Imovel   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("ocorrencias")
+}
+
+model Tarefa {
+  id          String       @id @default(uuid())
+  titulo      String
+  descricao   String?
+  ordem       Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  createdById String
+
+  createdBy   User         @relation(fields: [createdById], references: [id])
+  cards       TarefaCard[]
+
+  @@map("tarefas")
+}
+
+model TarefaCard {
+  id           String   @id @default(uuid())
+  tarefaId     String
+  imovelId     String
+  userId       String
+  observacoes  String?
+  ordem        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tarefa       Tarefa   @relation(fields: [tarefaId], references: [id], onDelete: Cascade)
+  imovel       Imovel   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id])
+
+  @@map("tarefa_cards")
+}
+
+model Log {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  details   String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@map("logs")
+}

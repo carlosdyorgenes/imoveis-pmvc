@@ -1,0 +1,32 @@
+[app]
+  name = "imoveis-pmvc-api"
+  primary_region = "gru"
+
+[build]
+  [build.args]
+    NODE_VERSION = "20"
+
+[env]
+  PORT = "3001"
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
+
+[mounts]
+  source = "imoveis_uploads"
+  destination = "/app/uploads"
