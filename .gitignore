@@ -6,3 +6,5 @@ dist/
 *.log
 uploads/temp/
 .DS_Store
+
+.claude/
