@@ -68,37 +68,34 @@ export default function OcorrenciasPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Ficha de Ocorrências</h1>
-          <p className="text-gray-500 mt-0.5">Histórico de movimentações dos imóveis</p>
+          <p className="text-gray-500 text-sm">Histórico de movimentações dos imóveis</p>
         </div>
         <button onClick={() => setShowModal(true)} className="btn-primary">
           <Plus className="w-4 h-4" /> Nova Ocorrência
         </button>
       </div>
 
-      <div className="card mb-6">
-        <label className="label flex items-center gap-1.5">
-          <Search className="w-4 h-4 text-gray-400" /> Selecione a inscrição imobiliária
-        </label>
-        <select
-          className="input"
-          value={busca}
-          onChange={e => setBusca(e.target.value)}
-        >
-          <option value="">Todas as ocorrências</option>
-          {imoveisOrdenados.map(im => (
-            <option key={im.id} value={im.inscricaoImobiliaria}>
-              {im.inscricaoImobiliaria} — {im.logradouro}, {im.bairro}
-            </option>
-          ))}
-        </select>
-        {busca && (
-          <div className="mt-3 text-sm text-gray-500">
-            Mostrando ocorrências do imóvel: <span className="font-mono font-semibold text-primary-700">{busca}</span>
-          </div>
-        )}
+      <div className="card mb-4 py-3">
+        <div className="flex items-center gap-3">
+          <label className="label mb-0 flex items-center gap-1.5 whitespace-nowrap">
+            <Search className="w-4 h-4 text-gray-400" /> Inscrição:
+          </label>
+          <select
+            className="input flex-1"
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+          >
+            <option value="">Todas as ocorrências</option>
+            {imoveisOrdenados.map(im => (
+              <option key={im.id} value={im.inscricaoImobiliaria}>
+                {im.inscricaoImobiliaria} — {im.logradouro}, {im.bairro}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="card p-0 overflow-hidden">
@@ -114,35 +111,35 @@ export default function OcorrenciasPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Data</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Inscrição</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Endereço</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Tipo</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Ocorrência</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Usuário</th>
-                  <th className="px-4 py-3" />
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Data</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Inscrição</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Endereço</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Tipo</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Ocorrência</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Usuário</th>
+                  <th className="px-4 py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {ocorrencias.map(oc => (
                   <tr key={oc.id} className="hover:bg-gray-50 group">
-                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">
+                    <td className="px-4 py-2 text-gray-500 whitespace-nowrap text-xs">
                       {format(new Date(oc.createdAt), "dd/MM/yyyy HH:mm", { locale: ptBR })}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs font-medium text-primary-700 whitespace-nowrap">
+                    <td className="px-4 py-2 font-mono text-xs font-medium text-primary-700 whitespace-nowrap">
                       {oc.imovel?.inscricaoImobiliaria}
                     </td>
-                    <td className="px-4 py-3 text-gray-600 max-w-xs truncate">
+                    <td className="px-4 py-2 text-gray-600 max-w-xs truncate">
                       {oc.imovel ? `${oc.imovel.logradouro}, ${oc.imovel.bairro}` : '—'}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TIPO_COLORS[oc.tipo] || 'bg-gray-100 text-gray-600'}`}>
                         {oc.tipo}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-700 max-w-sm">{oc.descricao}</td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{oc.user?.name}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2 text-gray-700 max-w-sm">{oc.descricao}</td>
+                    <td className="px-4 py-2 text-gray-600 whitespace-nowrap">{oc.user?.name}</td>
+                    <td className="px-4 py-2">
                       {podeEditar(oc) && (
                         <button
                           onClick={() => { setEditando(oc); setEditDescricao(oc.descricao) }}
