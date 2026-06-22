@@ -63,11 +63,12 @@ export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
         toast.error('CEP não encontrado')
         return
       }
-      if (data.logradouro) setValue('logradouro', data.logradouro)
-      if (data.bairro) setValue('bairro', data.bairro)
+      // Preenche sempre com o valor retornado (limpa o campo se vier vazio)
+      setValue('logradouro', data.logradouro || '')
+      setValue('bairro', data.bairro || '')
+      setValue('complemento', data.complemento || '')
       if (data.localidade) setValue('cidade', data.localidade)
       if (data.uf) setValue('estado', data.uf)
-      if (data.complemento) setValue('complemento', data.complemento)
       toast.success('Endereço preenchido pelo CEP')
       setFocus('numero')
     } catch {
