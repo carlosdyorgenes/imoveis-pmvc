@@ -12,8 +12,20 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 })
 
-const shadowUrl = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png'
+const cdn = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images'
+const shadowUrl = `${cdn}/marker-shadow.png`
 const iconBase = 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img'
+
+// Ícone azul explícito (exatos) — evita o caminho bugado do ícone padrão na remoção
+const exatoIcon = new L.Icon({
+  iconUrl: `${cdn}/marker-icon.png`,
+  iconRetinaUrl: `${cdn}/marker-icon-2x.png`,
+  shadowUrl,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+})
 
 // Marcador laranja para localizações estimadas pelo endereço
 const estimadoIcon = new L.Icon({
@@ -61,7 +73,7 @@ export default function MapView({ imoveis, selected, onSelect }: Props) {
         <Marker
           key={im.id}
           position={[im.latitude!, im.longitude!]}
-          icon={im.estimado ? estimadoIcon : undefined}
+          icon={im.estimado ? estimadoIcon : exatoIcon}
           eventHandlers={{ click: () => onSelect(im) }}
         >
           <Popup>
