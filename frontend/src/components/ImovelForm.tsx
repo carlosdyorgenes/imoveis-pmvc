@@ -2,8 +2,12 @@
 import { useState } from 'react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { Imovel } from '@/types'
-import { Plus, Trash2, ExternalLink, Loader2 } from 'lucide-react'
+import { Plus, Trash2, ExternalLink, Loader2, MapPin, Crosshair } from 'lucide-react'
 import toast from 'react-hot-toast'
+import dynamic from 'next/dynamic'
+import { geocodeImovel } from '@/lib/geocode'
+
+const LocationPicker = dynamic(() => import('@/components/LocationPicker'), { ssr: false })
 
 export interface ImovelFormData {
   inscricaoImobiliaria: string
@@ -39,7 +43,9 @@ const estados = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG
 export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
   const [tab, setTab] = useState(0)
   const [buscandoCep, setBuscandoCep] = useState(false)
-  const { register, handleSubmit, control, setValue, setFocus, formState: { errors } } = useForm<ImovelFormData>({
+  const [centralizando, setCentralizando] = useState(false)
+  const [flyTo, setFlyTo] = useState<[number, number] | null>(null)
+  const { register, handleSubmit, control, setValue, setFocus, watch, formState: { errors } } = useForm<ImovelFormData>({
     defaultValues: {
       tipo: 'PROPRIO',
       zona: 'URBANO',
@@ -51,6 +57,46 @@ export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
   })
 
   const { fields, append, remove } = useFieldArray({ control, name: 'documentos' })
+
+  const latAtual = watch('latitude')
+  const lngAtual = watch('longitude')
+
+  // Atualiza as coordenadas ao clicar/arrastar no mapa (6 casas decimais)
+  const setCoords = (lat: number, lng: number) => {
+    setValue('latitude', Number(lat.toFixed(6)), { shouldDirty: true })
+    setValue('longitude', Number(lng.toFixed(6)), { shouldDirty: true })
+  }
+
+  // Centraliza o mapa no endereço digitado (geocodificação)
+  const centralizarNoEndereco = async () => {
+    const dados = {
+      logradouro: watch('logradouro'),
+      numero: watch('numero'),
+      bairro: watch('bairro'),
+      cidade: watch('cidade'),
+      estado: watch('estado'),
+      cep: watch('cep'),
+    }
+    if (!dados.logradouro?.trim() || !dados.cidade?.trim()) {
+      toast.error('Preencha ao menos logradouro e cidade')
+      return
+    }
+    setCentralizando(true)
+    try {
+      const r = await geocodeImovel(dados)
+      if (!r) {
+        toast.error('Endereço não localizado no mapa')
+        return
+      }
+      setCoords(r.lat, r.lon)
+      setFlyTo([r.lat, r.lon])
+      toast.success('Mapa centralizado no endereço. Ajuste o marcador se necessário.')
+    } catch {
+      toast.error('Erro ao localizar endereço')
+    } finally {
+      setCentralizando(false)
+    }
+  }
 
   const buscarCep = async (cepRaw: string) => {
     const cep = cepRaw.replace(/\D/g, '')
@@ -214,6 +260,41 @@ export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
             <div>
               <label className="label">Área (m²)</label>
               <input {...register('area', { valueAsNumber: true })} type="number" step="any" className="input" placeholder="0.00" />
+            </div>
+          </div>
+
+          {/* Seletor de localização no mapa */}
+          <div>
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <label className="label mb-0 flex items-center gap-1.5">
+                <MapPin className="w-4 h-4 text-primary-600" /> Definir localização no mapa
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={centralizarNoEndereco}
+                  disabled={centralizando}
+                  className="btn-secondary text-xs"
+                >
+                  {centralizando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crosshair className="w-3.5 h-3.5" />}
+                  Centralizar no endereço
+                </button>
+                {Number.isFinite(latAtual) && Number.isFinite(lngAtual) && (
+                  <button
+                    type="button"
+                    onClick={() => { setValue('latitude', undefined as never, { shouldDirty: true }); setValue('longitude', undefined as never, { shouldDirty: true }) }}
+                    className="btn-secondary text-xs"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Limpar
+                  </button>
+                )}
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 mb-2">
+              Clique no mapa para marcar a localização exata, ou arraste o marcador. Isso define as coordenadas com precisão total.
+            </p>
+            <div className="rounded-xl overflow-hidden border border-gray-200" style={{ height: 320 }}>
+              <LocationPicker lat={latAtual} lng={lngAtual} flyTo={flyTo} onChange={setCoords} />
             </div>
           </div>
 

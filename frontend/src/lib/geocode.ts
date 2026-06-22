@@ -3,6 +3,16 @@ import { Imovel } from '@/types'
 export type Precisao = 'casa' | 'rua' | 'area'
 export interface GeoResult { lat: number; lon: number; precisao: Precisao }
 
+// Campos de endereço necessários para geocodificar (subconjunto de Imovel)
+export interface EnderecoLike {
+  logradouro?: string
+  numero?: string
+  bairro?: string
+  cidade?: string
+  estado?: string
+  cep?: string
+}
+
 const CACHE_KEY = 'geocode_cache_v3'
 
 function loadCache(): Record<string, GeoResult | null> {
@@ -18,7 +28,7 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 // Retorna uma string de endereço para geocodificar, ou null se incompleto.
 // Consideramos "completo o suficiente" quando há logradouro + bairro + cidade.
 // É usada como chave de cache e como fallback de busca por texto livre.
-export function buildEndereco(im: Imovel): string | null {
+export function buildEndereco(im: EnderecoLike): string | null {
   if (!im.logradouro?.trim() || !im.bairro?.trim() || !im.cidade?.trim()) return null
   const partes = [
     im.numero ? `${im.logradouro}, ${im.numero}` : im.logradouro,
@@ -62,12 +72,11 @@ async function nominatim(params: Record<string, string>): Promise<GeoResult | nu
 // 1) busca estruturada com "número logradouro" (Nominatim respeita o house number)
 // 2) se falhar, busca estruturada só pelo logradouro
 // 3) se falhar, busca por texto livre (rua/bairro/cidade)
-async function geocodeImovel(im: Imovel): Promise<GeoResult | null> {
-  const base = {
-    city: im.cidade,
-    state: im.estado,
-    ...(im.cep ? { postalcode: im.cep } : {}),
-  }
+export async function geocodeImovel(im: EnderecoLike): Promise<GeoResult | null> {
+  if (!im.logradouro?.trim() || !im.cidade?.trim()) return null
+  const base: Record<string, string> = { city: im.cidade }
+  if (im.estado) base.state = im.estado
+  if (im.cep) base.postalcode = im.cep
 
   if (im.numero?.trim()) {
     const comNumero = await nominatim({ ...base, street: `${im.numero} ${im.logradouro}` })
