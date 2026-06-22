@@ -8,10 +8,9 @@ import { useState } from 'react'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
-import { use } from 'react'
 
-export default function ImovelDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params)
+export default function ImovelDetailPage({ params }: { params: { id: string } }) {
+  const { id } = params
   const qc = useQueryClient()
   const [novaOc, setNovaOc] = useState('')
 

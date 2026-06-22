@@ -7,10 +7,9 @@ import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { useRouter } from 'next/navigation'
-import { use } from 'react'
 
-export default function EditarImovelPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params)
+export default function EditarImovelPage({ params }: { params: { id: string } }) {
+  const { id } = params
   const router = useRouter()
   const qc = useQueryClient()
 
