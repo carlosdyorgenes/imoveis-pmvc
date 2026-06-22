@@ -36,6 +36,7 @@ export interface Imovel {
   zona: ZonaImovel
   latitude?: number
   longitude?: number
+  estimado?: boolean
   area?: number
   observacoes?: string
   documentos?: Documento[]

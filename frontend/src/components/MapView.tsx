@@ -12,6 +12,20 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 })
 
+const shadowUrl = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png'
+const iconBase = 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img'
+
+// Marcador laranja para localizações estimadas pelo endereço
+const estimadoIcon = new L.Icon({
+  iconUrl: `${iconBase}/marker-icon-orange.png`,
+  iconRetinaUrl: `${iconBase}/marker-icon-2x-orange.png`,
+  shadowUrl,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+})
+
 function FlyTo({ imovel }: { imovel: Imovel | null }) {
   const map = useMap()
   useEffect(() => {
@@ -44,6 +58,7 @@ export default function MapView({ imoveis, selected, onSelect }: Props) {
         <Marker
           key={im.id}
           position={[im.latitude!, im.longitude!]}
+          icon={im.estimado ? estimadoIcon : undefined}
           eventHandlers={{ click: () => onSelect(im) }}
         >
           <Popup>
@@ -51,6 +66,9 @@ export default function MapView({ imoveis, selected, onSelect }: Props) {
               <p className="font-bold text-primary-700 font-mono text-xs">{im.inscricaoImobiliaria}</p>
               <p className="text-xs mt-1">{im.logradouro}, {im.numero || 'S/N'}</p>
               <p className="text-xs text-gray-500">{im.bairro} · {im.secretaria}</p>
+              {im.estimado && (
+                <p className="text-xs text-amber-600 mt-1">≈ Localização estimada pelo endereço</p>
+              )}
               <div className="flex gap-1 mt-1.5">
                 <span className={im.tipo === 'PROPRIO' ? 'badge-proprio' : 'badge-locado'}>{im.tipo}</span>
                 <span className={im.zona === 'URBANO' ? 'badge-urbano' : 'badge-rural'}>{im.zona}</span>

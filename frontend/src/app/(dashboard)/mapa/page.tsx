@@ -3,8 +3,9 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Imovel } from '@/types'
-import { Search, MapPin, ExternalLink } from 'lucide-react'
+import { Search, MapPin, ExternalLink, Loader2 } from 'lucide-react'
 import dynamic from 'next/dynamic'
+import { buildEndereco, geocodeImoveis } from '@/lib/geocode'
 
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false })
 
@@ -18,20 +19,61 @@ export default function MapaPage() {
     queryFn: () => api.get('/api/imoveis').then(r => r.data)
   })
 
-  const comCoordenadas = imoveis.filter(i => i.latitude && i.longitude)
+  // Imóveis sem coordenadas mas com endereço completo o suficiente para estimar
+  const semCoordsComEndereco = imoveis.filter(
+    i => (!i.latitude || !i.longitude) && buildEndereco(i) !== null
+  )
 
-  const filtrados = comCoordenadas.filter(im =>
+  // Geocodifica esses imóveis (cacheado em localStorage, throttled)
+  const { data: geocoded = {}, isFetching: geocoding } = useQuery({
+    queryKey: ['geocode', semCoordsComEndereco.map(i => `${i.id}:${buildEndereco(i)}`).join('|')],
+    queryFn: () => geocodeImoveis(semCoordsComEndereco),
+    enabled: semCoordsComEndereco.length > 0,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  })
+
+  // Lista final com localização: coordenadas exatas têm prioridade; senão, estimadas pelo endereço
+  const imoveisComLocal: Imovel[] = imoveis.flatMap<Imovel>(im => {
+    if (im.latitude && im.longitude) return [{ ...im, estimado: false }]
+    const g = geocoded[im.id]
+    if (g) return [{ ...im, latitude: g.lat, longitude: g.lon, estimado: true }]
+    return []
+  })
+
+  const exatos = imoveisComLocal.filter(i => !i.estimado)
+  const estimados = imoveisComLocal.filter(i => i.estimado)
+  const semLocalizacao = imoveis.length - imoveisComLocal.length
+
+  const filtrados = imoveisComLocal.filter(im =>
     im.inscricaoImobiliaria.toLowerCase().includes(search.toLowerCase()) ||
     im.logradouro.toLowerCase().includes(search.toLowerCase())
   )
 
-  const exibidos = showAll ? comCoordenadas : selected ? [selected] : []
+  const exibidos = showAll ? imoveisComLocal : selected ? [selected] : []
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Localização Espacial</h1>
-        <p className="text-gray-500 mt-0.5">{comCoordenadas.length} imóvel(is) geo-referenciado(s)</p>
+        <p className="text-gray-500 mt-0.5 flex items-center gap-2 flex-wrap">
+          <span>{imoveisComLocal.length} imóvel(is) no mapa</span>
+          <span className="text-gray-300">·</span>
+          <span className="text-blue-600">{exatos.length} por coordenadas</span>
+          <span className="text-gray-300">·</span>
+          <span className="text-amber-600">{estimados.length} estimado(s) por endereço</span>
+          {semLocalizacao > 0 && (
+            <>
+              <span className="text-gray-300">·</span>
+              <span className="text-gray-400">{semLocalizacao} sem localização</span>
+            </>
+          )}
+          {geocoding && (
+            <span className="inline-flex items-center gap-1 text-amber-600 text-xs">
+              <Loader2 className="w-3 h-3 animate-spin" /> estimando endereços...
+            </span>
+          )}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -56,7 +98,7 @@ export default function MapaPage() {
             </button>
 
             <div className="space-y-2 max-h-96 overflow-y-auto">
-              {(search ? filtrados : comCoordenadas).slice(0, 50).map(im => (
+              {(search ? filtrados : imoveisComLocal).slice(0, 50).map(im => (
                 <button
                   key={im.id}
                   onClick={() => { setSelected(im); setShowAll(false) }}
@@ -66,9 +108,16 @@ export default function MapaPage() {
                       : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                   }`}
                 >
-                  <p className="font-mono text-xs font-semibold text-primary-700">{im.inscricaoImobiliaria}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-mono text-xs font-semibold text-primary-700">{im.inscricaoImobiliaria}</p>
+                    {im.estimado && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">estimado</span>
+                    )}
+                  </div>
                   <p className="text-xs text-gray-600 mt-0.5 truncate">{im.logradouro}, {im.bairro}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">📍 {im.latitude?.toFixed(4)}, {im.longitude?.toFixed(4)}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {im.estimado ? '≈' : '📍'} {im.latitude?.toFixed(4)}, {im.longitude?.toFixed(4)}
+                  </p>
                 </button>
               ))}
             </div>
@@ -80,6 +129,11 @@ export default function MapaPage() {
               <p className="font-mono text-xs text-primary-700 font-bold">{selected.inscricaoImobiliaria}</p>
               <p className="text-xs text-gray-600 mt-1">{selected.logradouro}, {selected.numero || 'S/N'}</p>
               <p className="text-xs text-gray-500">{selected.bairro} - {selected.secretaria}</p>
+              {selected.estimado && (
+                <p className="text-xs text-amber-600 mt-2 bg-amber-50 rounded-lg p-2">
+                  ⚠ Localização estimada a partir do endereço (sem coordenadas cadastradas).
+                </p>
+              )}
               <div className="flex gap-2 mt-3">
                 <a
                   href={`https://maps.google.com/?q=${selected.latitude},${selected.longitude}`}
