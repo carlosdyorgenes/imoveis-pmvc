@@ -116,6 +116,30 @@ export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
             <input {...register('cartorioImoveis')} className="input" placeholder="Nome do cartório" />
           </div>
 
+          <div className="md:w-1/3">
+            <label className="label">CEP</label>
+            <div className="relative">
+              <input
+                {...register('cep', {
+                  onBlur: (e) => buscarCep(e.target.value),
+                })}
+                className="input pr-9"
+                placeholder="00000-000"
+                maxLength={9}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    buscarCep((e.target as HTMLInputElement).value)
+                  }
+                }}
+              />
+              {buscandoCep && (
+                <Loader2 className="absolute right-2.5 top-2.5 w-4 h-4 text-primary-500 animate-spin" />
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Digite o CEP para preencher o endereço automaticamente</p>
+          </div>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="col-span-2 md:col-span-3">
               <label className="label">Logradouro *</label>
@@ -128,7 +152,7 @@ export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="label">Complemento</label>
               <input {...register('complemento')} className="input" placeholder="Apto, Bloco..." />
@@ -137,29 +161,6 @@ export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
               <label className="label">Bairro *</label>
               <input {...register('bairro', { required: 'Obrigatório' })} className="input" />
               {errors.bairro && <p className="text-red-500 text-xs mt-1">{errors.bairro.message}</p>}
-            </div>
-            <div>
-              <label className="label">CEP</label>
-              <div className="relative">
-                <input
-                  {...register('cep', {
-                    onBlur: (e) => buscarCep(e.target.value),
-                  })}
-                  className="input pr-9"
-                  placeholder="00000-000"
-                  maxLength={9}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      buscarCep((e.target as HTMLInputElement).value)
-                    }
-                  }}
-                />
-                {buscandoCep && (
-                  <Loader2 className="absolute right-2.5 top-2.5 w-4 h-4 text-primary-500 animate-spin" />
-                )}
-              </div>
-              <p className="text-xs text-gray-400 mt-1">Preenche o endereço automaticamente</p>
             </div>
           </div>
 
