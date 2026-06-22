@@ -1,8 +1,9 @@
 import { Imovel } from '@/types'
 
-export interface GeoResult { lat: number; lon: number }
+export type Precisao = 'casa' | 'rua' | 'area'
+export interface GeoResult { lat: number; lon: number; precisao: Precisao }
 
-const CACHE_KEY = 'geocode_cache_v2'
+const CACHE_KEY = 'geocode_cache_v3'
 
 function loadCache(): Record<string, GeoResult | null> {
   try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}') } catch { return {} }
@@ -30,9 +31,18 @@ export function buildEndereco(im: Imovel): string | null {
   return partes.join(', ')
 }
 
+function derivePrecisao(item: Record<string, unknown>): Precisao {
+  const address = item.address as Record<string, unknown> | undefined
+  if (address?.house_number) return 'casa'
+  const at = item.addresstype as string | undefined
+  if (at === 'building' || at === 'house' || at === 'place') return 'casa'
+  if (at === 'road' || item.class === 'highway') return 'rua'
+  return 'area'
+}
+
 async function nominatim(params: Record<string, string>): Promise<GeoResult | null> {
   try {
-    const qs = new URLSearchParams({ format: 'json', limit: '1', countrycodes: 'br', ...params })
+    const qs = new URLSearchParams({ format: 'json', limit: '1', countrycodes: 'br', addressdetails: '1', ...params })
     const res = await fetch(`https://nominatim.openstreetmap.org/search?${qs.toString()}`, {
       headers: { 'Accept-Language': 'pt-BR' },
     })
@@ -40,7 +50,9 @@ async function nominatim(params: Record<string, string>): Promise<GeoResult | nu
     if (Array.isArray(data) && data.length > 0) {
       const lat = parseFloat(data[0].lat)
       const lon = parseFloat(data[0].lon)
-      if (Number.isFinite(lat) && Number.isFinite(lon)) return { lat, lon }
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        return { lat, lon, precisao: derivePrecisao(data[0]) }
+      }
     }
   } catch { /* ignore */ }
   return null

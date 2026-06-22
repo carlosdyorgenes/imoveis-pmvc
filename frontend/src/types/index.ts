@@ -37,6 +37,7 @@ export interface Imovel {
   latitude?: number
   longitude?: number
   estimado?: boolean
+  precisaoGeo?: 'casa' | 'rua' | 'area'
   area?: number
   observacoes?: string
   documentos?: Documento[]

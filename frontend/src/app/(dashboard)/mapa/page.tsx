@@ -37,7 +37,7 @@ export default function MapaPage() {
   const imoveisComLocal: Imovel[] = imoveis.flatMap<Imovel>(im => {
     if (im.latitude && im.longitude) return [{ ...im, estimado: false }]
     const g = geocoded[im.id]
-    if (g) return [{ ...im, latitude: g.lat, longitude: g.lon, estimado: true }]
+    if (g) return [{ ...im, latitude: g.lat, longitude: g.lon, estimado: true, precisaoGeo: g.precisao }]
     return []
   })
 
@@ -51,6 +51,12 @@ export default function MapaPage() {
   )
 
   const exibidos = showAll ? imoveisComLocal : selected ? [selected] : []
+
+  const precisaoLabel: Record<string, string> = {
+    casa: 'nível de número (exato)',
+    rua: 'nível de rua (aproximada)',
+    area: 'nível de bairro (aproximada)',
+  }
 
   return (
     <div>
@@ -118,6 +124,9 @@ export default function MapaPage() {
                   <p className="text-xs text-gray-400 mt-0.5">
                     {im.estimado ? '≈' : '📍'} {im.latitude?.toFixed(4)}, {im.longitude?.toFixed(4)}
                   </p>
+                  {im.estimado && im.precisaoGeo && (
+                    <p className="text-[10px] text-amber-600 mt-0.5">{precisaoLabel[im.precisaoGeo]}</p>
+                  )}
                 </button>
               ))}
             </div>
@@ -131,7 +140,9 @@ export default function MapaPage() {
               <p className="text-xs text-gray-500">{selected.bairro} - {selected.secretaria}</p>
               {selected.estimado && (
                 <p className="text-xs text-amber-600 mt-2 bg-amber-50 rounded-lg p-2">
-                  ⚠ Localização estimada a partir do endereço (sem coordenadas cadastradas).
+                  ⚠ Localização estimada a partir do endereço (sem coordenadas cadastradas)
+                  {selected.precisaoGeo ? ` — ${precisaoLabel[selected.precisaoGeo]}` : ''}.
+                  {selected.precisaoGeo !== 'casa' && ' Para precisão exata, cadastre as coordenadas do imóvel.'}
                 </p>
               )}
               <div className="flex gap-2 mt-3">

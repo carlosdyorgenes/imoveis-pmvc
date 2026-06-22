@@ -82,7 +82,10 @@ export default function MapView({ imoveis, selected, onSelect }: Props) {
               <p className="text-xs mt-1">{im.logradouro}, {im.numero || 'S/N'}</p>
               <p className="text-xs text-gray-500">{im.bairro} · {im.secretaria}</p>
               {im.estimado && (
-                <p className="text-xs text-amber-600 mt-1">≈ Localização estimada pelo endereço</p>
+                <p className="text-xs text-amber-600 mt-1">
+                  ≈ Estimada pelo endereço
+                  {im.precisaoGeo === 'rua' ? ' (nível de rua)' : im.precisaoGeo === 'area' ? ' (nível de bairro)' : ''}
+                </p>
               )}
               <div className="flex gap-1 mt-1.5">
                 <span className={im.tipo === 'PROPRIO' ? 'badge-proprio' : 'badge-locado'}>{im.tipo}</span>
