@@ -108,38 +108,48 @@ export default function OcorrenciasPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
+              <colgroup>
+                <col className="w-[92px]" />
+                <col className="w-[120px]" />
+                <col className="w-[20%]" />
+                <col className="w-[80px]" />
+                <col />
+                <col className="w-[130px]" />
+                <col className="w-[40px]" />
+              </colgroup>
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">Data</th>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">Inscrição</th>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">Endereço</th>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">Tipo</th>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">Ocorrência</th>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">Usuário</th>
-                  <th className="px-4 py-2" />
+                  <th className="text-left px-3 py-2 font-medium text-gray-600">Data</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-600">Inscrição</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-600">Endereço</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-600">Tipo</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-600">Ocorrência</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-600">Usuário</th>
+                  <th className="px-2 py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {ocorrencias.map(oc => (
                   <tr key={oc.id} className="hover:bg-gray-50 group">
-                    <td className="px-4 py-2 text-gray-500 whitespace-nowrap text-xs">
-                      {format(new Date(oc.createdAt), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                    <td className="px-3 py-2 text-gray-500 text-xs align-top">
+                      {format(new Date(oc.createdAt), "dd/MM/yy", { locale: ptBR })}
+                      <span className="block text-gray-400">{format(new Date(oc.createdAt), "HH:mm", { locale: ptBR })}</span>
                     </td>
-                    <td className="px-4 py-2 font-mono text-xs font-medium text-primary-700 whitespace-nowrap">
+                    <td className="px-3 py-2 font-mono text-xs font-medium text-primary-700 break-words align-top">
                       {oc.imovel?.inscricaoImobiliaria}
                     </td>
-                    <td className="px-4 py-2 text-gray-600 max-w-xs truncate">
+                    <td className="px-3 py-2 text-gray-600 text-xs break-words align-top">
                       {oc.imovel ? `${oc.imovel.logradouro}, ${oc.imovel.bairro}` : '—'}
                     </td>
-                    <td className="px-4 py-2">
+                    <td className="px-3 py-2 align-top">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TIPO_COLORS[oc.tipo] || 'bg-gray-100 text-gray-600'}`}>
                         {oc.tipo}
                       </span>
                     </td>
-                    <td className="px-4 py-2 text-gray-700 max-w-sm">{oc.descricao}</td>
-                    <td className="px-4 py-2 text-gray-600 whitespace-nowrap">{oc.user?.name}</td>
-                    <td className="px-4 py-2">
+                    <td className="px-3 py-2 text-gray-700 text-xs break-words align-top">{oc.descricao}</td>
+                    <td className="px-3 py-2 text-gray-600 text-xs break-words align-top">{oc.user?.name}</td>
+                    <td className="px-2 py-2 align-top">
                       {podeEditar(oc) && (
                         <button
                           onClick={() => { setEditando(oc); setEditDescricao(oc.descricao) }}
