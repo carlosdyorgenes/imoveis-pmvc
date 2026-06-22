@@ -2,7 +2,7 @@ import { Imovel } from '@/types'
 
 export interface GeoResult { lat: number; lon: number }
 
-const CACHE_KEY = 'geocode_cache_v1'
+const CACHE_KEY = 'geocode_cache_v2'
 
 function loadCache(): Record<string, GeoResult | null> {
   try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}') } catch { return {} }
@@ -16,6 +16,7 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 // Retorna uma string de endereço para geocodificar, ou null se incompleto.
 // Consideramos "completo o suficiente" quando há logradouro + bairro + cidade.
+// É usada como chave de cache e como fallback de busca por texto livre.
 export function buildEndereco(im: Imovel): string | null {
   if (!im.logradouro?.trim() || !im.bairro?.trim() || !im.cidade?.trim()) return null
   const partes = [
@@ -29,15 +30,45 @@ export function buildEndereco(im: Imovel): string | null {
   return partes.join(', ')
 }
 
-async function geocodeEndereco(query: string): Promise<GeoResult | null> {
+async function nominatim(params: Record<string, string>): Promise<GeoResult | null> {
   try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(query)}`
-    const res = await fetch(url, { headers: { 'Accept-Language': 'pt-BR' } })
+    const qs = new URLSearchParams({ format: 'json', limit: '1', countrycodes: 'br', ...params })
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?${qs.toString()}`, {
+      headers: { 'Accept-Language': 'pt-BR' },
+    })
     const data = await res.json()
     if (Array.isArray(data) && data.length > 0) {
       return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) }
     }
   } catch { /* ignore */ }
+  return null
+}
+
+// Geocodifica um imóvel priorizando a precisão do número:
+// 1) busca estruturada com "número logradouro" (Nominatim respeita o house number)
+// 2) se falhar, busca estruturada só pelo logradouro
+// 3) se falhar, busca por texto livre (rua/bairro/cidade)
+async function geocodeImovel(im: Imovel): Promise<GeoResult | null> {
+  const base = {
+    city: im.cidade,
+    state: im.estado,
+    ...(im.cep ? { postalcode: im.cep } : {}),
+  }
+
+  if (im.numero?.trim()) {
+    const comNumero = await nominatim({ ...base, street: `${im.numero} ${im.logradouro}` })
+    if (comNumero) return comNumero
+    await sleep(1100)
+  }
+
+  const semNumero = await nominatim({ ...base, street: im.logradouro })
+  if (semNumero) return semNumero
+
+  const query = buildEndereco(im)
+  if (query) {
+    await sleep(1100)
+    return nominatim({ q: query })
+  }
   return null
 }
 
@@ -60,7 +91,7 @@ export async function geocodeImoveis(imoveis: Imovel[]): Promise<Record<string, 
     }
 
     if (consultou) await sleep(1100) // respeita o rate limit entre chamadas reais
-    const result = await geocodeEndereco(query)
+    const result = await geocodeImovel(im)
     consultou = true
     cache[query] = result
     if (result) out[im.id] = result
