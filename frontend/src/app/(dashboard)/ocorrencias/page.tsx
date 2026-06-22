@@ -1,15 +1,21 @@
 'use client'
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Ocorrencia, Imovel } from '@/types'
-import { Search, ClipboardList } from 'lucide-react'
+import { Search, ClipboardList, Plus, X } from 'lucide-react'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import toast from 'react-hot-toast'
 
 export default function OcorrenciasPage() {
+  const qc = useQueryClient()
   const [inscricao, setInscricao] = useState('')
   const [busca, setBusca] = useState('')
+  const [showModal, setShowModal] = useState(false)
+  const [formImovelId, setFormImovelId] = useState('')
+  const [formDescricao, setFormDescricao] = useState('')
+  const [imovelSearch, setImovelSearch] = useState('')
 
   const { data: imoveis = [] } = useQuery<Imovel[]>({
     queryKey: ['imoveis'],
@@ -21,6 +27,26 @@ export default function OcorrenciasPage() {
     queryFn: () => api.get('/api/ocorrencias', { params: busca ? { inscricao: busca } : {} }).then(r => r.data),
   })
 
+  const createMutation = useMutation({
+    mutationFn: () => api.post('/api/ocorrencias', { imovelId: formImovelId, descricao: formDescricao, tipo: 'MANUAL' }),
+    onSuccess: () => {
+      toast.success('Ocorrência registrada')
+      qc.invalidateQueries({ queryKey: ['ocorrencias'] })
+      setShowModal(false)
+      setFormImovelId('')
+      setFormDescricao('')
+      setImovelSearch('')
+    },
+    onError: () => toast.error('Erro ao registrar ocorrência')
+  })
+
+  const imoveisFiltrados = imoveis.filter(im =>
+    im.inscricaoImobiliaria.toLowerCase().includes(imovelSearch.toLowerCase()) ||
+    im.logradouro.toLowerCase().includes(imovelSearch.toLowerCase())
+  ).slice(0, 8)
+
+  const imovelSelecionado = imoveis.find(im => im.id === formImovelId)
+
   const TIPO_COLORS: Record<string, string> = {
     MANUAL: 'bg-gray-100 text-gray-600',
     TAREFA: 'bg-blue-100 text-blue-600',
@@ -28,9 +54,14 @@ export default function OcorrenciasPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Ficha de Ocorrências</h1>
-        <p className="text-gray-500 mt-0.5">Histórico de movimentações dos imóveis</p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Ficha de Ocorrências</h1>
+          <p className="text-gray-500 mt-0.5">Histórico de movimentações dos imóveis</p>
+        </div>
+        <button onClick={() => setShowModal(true)} className="btn-primary">
+          <Plus className="w-4 h-4" /> Nova Ocorrência
+        </button>
       </div>
 
       <div className="card mb-6">
@@ -42,12 +73,10 @@ export default function OcorrenciasPage() {
               placeholder="Buscar por inscrição imobiliária..."
               value={inscricao}
               onChange={e => setInscricao(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && setBusca(inscricao)}
             />
           </div>
-          <button
-            onClick={() => setBusca(inscricao)}
-            className="btn-primary"
-          >
+          <button onClick={() => setBusca(inscricao)} className="btn-primary">
             <Search className="w-4 h-4" /> Buscar
           </button>
           {busca && (
@@ -110,6 +139,88 @@ export default function OcorrenciasPage() {
           </div>
         )}
       </div>
+
+      {/* Modal Nova Ocorrência */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h2 className="font-semibold text-gray-800">Nova Ocorrência Manual</h2>
+              <button onClick={() => setShowModal(false)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Busca de imóvel */}
+              <div>
+                <label className="label">Imóvel</label>
+                {imovelSelecionado ? (
+                  <div className="flex items-center justify-between p-3 bg-primary-50 border border-primary-200 rounded-lg">
+                    <div>
+                      <p className="text-xs font-mono font-semibold text-primary-700">{imovelSelecionado.inscricaoImobiliaria}</p>
+                      <p className="text-xs text-gray-600 mt-0.5">{imovelSelecionado.logradouro}, {imovelSelecionado.bairro}</p>
+                    </div>
+                    <button onClick={() => { setFormImovelId(''); setImovelSearch('') }} className="p-1 hover:bg-primary-100 rounded">
+                      <X className="w-3.5 h-3.5 text-primary-500" />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      className="input"
+                      placeholder="Buscar por inscrição ou endereço..."
+                      value={imovelSearch}
+                      onChange={e => setImovelSearch(e.target.value)}
+                      autoFocus
+                    />
+                    {imovelSearch && (
+                      <div className="mt-1 border border-gray-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                        {imoveisFiltrados.length === 0 ? (
+                          <p className="text-xs text-gray-400 p-3">Nenhum imóvel encontrado</p>
+                        ) : imoveisFiltrados.map(im => (
+                          <button
+                            key={im.id}
+                            onClick={() => { setFormImovelId(im.id); setImovelSearch('') }}
+                            className="w-full text-left px-3 py-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                          >
+                            <span className="text-xs font-mono font-semibold text-primary-700">{im.inscricaoImobiliaria}</span>
+                            <span className="text-xs text-gray-500 ml-2">{im.logradouro}, {im.bairro}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Descrição */}
+              <div>
+                <label className="label">Descrição da Ocorrência</label>
+                <textarea
+                  className="input min-h-24 resize-none"
+                  placeholder="Descreva a ocorrência..."
+                  value={formDescricao}
+                  onChange={e => setFormDescricao(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 p-5 border-t border-gray-100">
+              <button onClick={() => setShowModal(false)} className="btn-secondary flex-1 justify-center">
+                Cancelar
+              </button>
+              <button
+                onClick={() => createMutation.mutate()}
+                disabled={!formImovelId || !formDescricao.trim() || createMutation.isPending}
+                className="btn-primary flex-1 justify-center"
+              >
+                {createMutation.isPending ? 'Registrando...' : 'Registrar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
