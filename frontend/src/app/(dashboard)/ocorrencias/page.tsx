@@ -12,7 +12,6 @@ import { useAuth } from '@/hooks/useAuth'
 export default function OcorrenciasPage() {
   const qc = useQueryClient()
   const { user } = useAuth()
-  const [inscricao, setInscricao] = useState('')
   const [busca, setBusca] = useState('')
 
   // Modal nova ocorrência
@@ -65,6 +64,10 @@ export default function OcorrenciasPage() {
 
   const imovelSelecionado = imoveis.find(im => im.id === formImovelId)
 
+  const imoveisOrdenados = [...imoveis].sort((a, b) =>
+    a.inscricaoImobiliaria.localeCompare(b.inscricaoImobiliaria, 'pt-BR', { numeric: true })
+  )
+
   const TIPO_COLORS: Record<string, string> = {
     MANUAL: 'bg-gray-100 text-gray-600',
     TAREFA: 'bg-blue-100 text-blue-600',
@@ -85,26 +88,21 @@ export default function OcorrenciasPage() {
       </div>
 
       <div className="card mb-6">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-            <input
-              className="input pl-9"
-              placeholder="Buscar por inscrição imobiliária..."
-              value={inscricao}
-              onChange={e => setInscricao(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && setBusca(inscricao)}
-            />
-          </div>
-          <button onClick={() => setBusca(inscricao)} className="btn-primary">
-            <Search className="w-4 h-4" /> Buscar
-          </button>
-          {busca && (
-            <button onClick={() => { setBusca(''); setInscricao('') }} className="btn-secondary">
-              Limpar
-            </button>
-          )}
-        </div>
+        <label className="label flex items-center gap-1.5">
+          <Search className="w-4 h-4 text-gray-400" /> Selecione a inscrição imobiliária
+        </label>
+        <select
+          className="input"
+          value={busca}
+          onChange={e => setBusca(e.target.value)}
+        >
+          <option value="">Todas as ocorrências</option>
+          {imoveisOrdenados.map(im => (
+            <option key={im.id} value={im.inscricaoImobiliaria}>
+              {im.inscricaoImobiliaria} — {im.logradouro}, {im.bairro}
+            </option>
+          ))}
+        </select>
         {busca && (
           <div className="mt-3 text-sm text-gray-500">
             Mostrando ocorrências do imóvel: <span className="font-mono font-semibold text-primary-700">{busca}</span>
