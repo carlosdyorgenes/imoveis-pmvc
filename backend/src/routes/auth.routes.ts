@@ -41,8 +41,7 @@ authRouter.post('/forgot-password', async (req, res) => {
 
   const user = await prisma.user.findUnique({ where: { email } })
   if (!user || !user.active) {
-    // Não revelar se o email existe ou não
-    return res.json({ message: 'Se o email existir no sistema, a solicitação foi registrada.' })
+    throw new AppError('O e-mail informado não está cadastrado no sistema.', 404)
   }
 
   // Verificar se já há solicitação pendente
@@ -50,13 +49,13 @@ authRouter.post('/forgot-password', async (req, res) => {
     where: { userId: user.id, status: 'PENDENTE' }
   })
   if (pendente) {
-    return res.json({ message: 'Já existe uma solicitação pendente para este email. Aguarde o administrador.' })
+    return res.json({ message: 'Já existe uma solicitação pendente para este e-mail. Aguarde o administrador redefinir sua senha.' })
   }
 
   await prisma.solicitacaoSenha.create({ data: { userId: user.id } })
   await createLog({ userId: user.id, action: 'FORGOT_PASSWORD', entity: 'USER', entityId: user.id, ip: req.ip })
 
-  res.json({ message: 'Solicitação registrada. O administrador foi notificado e irá redefinir sua senha.' })
+  res.json({ message: 'Solicitação registrada. Sua senha será redefinida pelo administrador do sistema.' })
 })
 
 // Listar solicitações pendentes (master only)

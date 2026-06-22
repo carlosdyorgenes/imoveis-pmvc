@@ -40,8 +40,8 @@ export default function LoginPage() {
       const res = await api.post('/api/auth/forgot-password', { email: forgotEmail })
       toast.success(res.data.message)
       setForgotSent(true)
-    } catch {
-      toast.error('Erro ao enviar solicitação')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Erro ao enviar solicitação')
     } finally {
       setForgotLoading(false)
     }
