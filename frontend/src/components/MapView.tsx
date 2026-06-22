@@ -26,10 +26,13 @@ const estimadoIcon = new L.Icon({
   shadowSize: [41, 41],
 })
 
+const coordValida = (im: Imovel | null): im is Imovel & { latitude: number; longitude: number } =>
+  !!im && Number.isFinite(im.latitude) && Number.isFinite(im.longitude)
+
 function FlyTo({ imovel }: { imovel: Imovel | null }) {
   const map = useMap()
   useEffect(() => {
-    if (imovel?.latitude && imovel?.longitude) {
+    if (coordValida(imovel)) {
       map.flyTo([imovel.latitude, imovel.longitude], 17, { duration: 1 })
     }
   }, [imovel, map])
@@ -43,8 +46,8 @@ interface Props {
 }
 
 export default function MapView({ imoveis, selected, onSelect }: Props) {
-  const center: [number, number] = selected?.latitude
-    ? [selected.latitude, selected.longitude!]
+  const center: [number, number] = coordValida(selected)
+    ? [selected.latitude, selected.longitude]
     : [-14.8529, -40.8440]
 
   return (
@@ -54,7 +57,7 @@ export default function MapView({ imoveis, selected, onSelect }: Props) {
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       <FlyTo imovel={selected} />
-      {imoveis.map(im => (
+      {imoveis.filter(coordValida).map(im => (
         <Marker
           key={im.id}
           position={[im.latitude!, im.longitude!]}

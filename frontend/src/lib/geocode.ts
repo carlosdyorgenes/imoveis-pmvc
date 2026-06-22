@@ -38,7 +38,9 @@ async function nominatim(params: Record<string, string>): Promise<GeoResult | nu
     })
     const data = await res.json()
     if (Array.isArray(data) && data.length > 0) {
-      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) }
+      const lat = parseFloat(data[0].lat)
+      const lon = parseFloat(data[0].lon)
+      if (Number.isFinite(lat) && Number.isFinite(lon)) return { lat, lon }
     }
   } catch { /* ignore */ }
   return null
