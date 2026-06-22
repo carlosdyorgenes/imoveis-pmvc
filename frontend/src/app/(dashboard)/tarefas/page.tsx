@@ -3,7 +3,11 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Tarefa, TarefaCard, Imovel } from '@/types'
-import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import {
+  DndContext, DragEndEvent, DragOverlay, DragStartEvent,
+  PointerSensor, useSensor, useSensors, useDroppable,
+  pointerWithin, rectIntersection
+} from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Plus, Trash2, GripVertical, Building2, X } from 'lucide-react'
@@ -12,7 +16,7 @@ import { useAuth } from '@/hooks/useAuth'
 
 function CardItem({ card, onDelete }: { card: TarefaCard; onDelete: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: card.id })
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }
 
   return (
     <div
@@ -44,6 +48,26 @@ function CardItem({ card, onDelete }: { card: TarefaCard; onDelete: () => void }
       </div>
     </div>
   )
+}
+
+// Zona droppable que envolve cada coluna
+function DroppableZone({ id, children }: { id: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id })
+  return (
+    <div
+      ref={setNodeRef}
+      className={`space-y-2 min-h-16 rounded-lg transition-colors duration-150 ${isOver ? 'bg-primary-50 ring-2 ring-primary-300 ring-dashed p-1' : ''}`}
+    >
+      {children}
+    </div>
+  )
+}
+
+// Detecção de colisão customizada: tenta pointer first, depois rect
+function customCollision(args: Parameters<typeof pointerWithin>[0]) {
+  const pointer = pointerWithin(args)
+  if (pointer.length > 0) return pointer
+  return rectIntersection(args)
 }
 
 export default function TarefasPage() {
@@ -92,7 +116,10 @@ export default function TarefasPage() {
   const moveMutation = useMutation({
     mutationFn: ({ cardId, novaTarefaId }: { cardId: string; novaTarefaId: string }) =>
       api.put(`/api/tarefas/cards/${cardId}/mover`, { novaTarefaId }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tarefas'] })
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tarefas'] })
+      toast.success('Imóvel movido para nova etapa')
+    }
   })
 
   const handleDragStart = (e: DragStartEvent) => {
@@ -103,13 +130,18 @@ export default function TarefasPage() {
   const handleDragEnd = (e: DragEndEvent) => {
     setActiveDrag(null)
     const { active, over } = e
-    if (!over || active.id === over.id) return
+    if (!over) return
 
     const sourceCard = tarefas.flatMap(t => t.cards).find(c => c.id === active.id)
-    const targetCol = tarefas.find(t => t.id === over.id || t.cards.some(c => c.id === over.id))
+    if (!sourceCard) return
 
-    if (sourceCard && targetCol && sourceCard.tarefaId !== targetCol.id) {
-      moveMutation.mutate({ cardId: sourceCard.id, novaTarefaId: targetCol.id })
+    // over.id pode ser o id de uma coluna (DroppableZone) ou de um card
+    const targetColId =
+      tarefas.find(t => t.id === over.id)?.id ||
+      tarefas.find(t => t.cards.some(c => c.id === over.id))?.id
+
+    if (targetColId && sourceCard.tarefaId !== targetColId) {
+      moveMutation.mutate({ cardId: sourceCard.id, novaTarefaId: targetColId })
     }
   }
 
@@ -130,7 +162,7 @@ export default function TarefasPage() {
         </button>
       </div>
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={customCollision} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4">
           {tarefas.map(tarefa => (
             <div key={tarefa.id} className="flex-shrink-0 w-72 bg-gray-100 rounded-xl p-3">
@@ -150,7 +182,7 @@ export default function TarefasPage() {
               </div>
 
               <SortableContext items={tarefa.cards.map(c => c.id)} strategy={verticalListSortingStrategy}>
-                <div className="space-y-2 min-h-8">
+                <DroppableZone id={tarefa.id}>
                   {tarefa.cards.map(card => (
                     <CardItem
                       key={card.id}
@@ -158,7 +190,7 @@ export default function TarefasPage() {
                       onDelete={() => confirm('Remover imóvel desta etapa?') && deleteCardMutation.mutate(card.id)}
                     />
                   ))}
-                </div>
+                </DroppableZone>
               </SortableContext>
 
               {addCardCol === tarefa.id ? (
@@ -237,9 +269,9 @@ export default function TarefasPage() {
           )}
         </div>
 
-        <DragOverlay>
+        <DragOverlay dropAnimation={{ duration: 150, easing: 'ease' }}>
           {activeDrag && (
-            <div className="bg-white border border-primary-300 rounded-lg p-3 shadow-lg w-72">
+            <div className="bg-white border-2 border-primary-400 rounded-lg p-3 shadow-xl w-72 rotate-1 opacity-95">
               <p className="text-xs font-mono font-semibold text-primary-700">{activeDrag.imovel.inscricaoImobiliaria}</p>
               <p className="text-xs text-gray-600 mt-0.5">{activeDrag.imovel.logradouro}</p>
             </div>
