@@ -18,7 +18,6 @@ export default function OcorrenciasPage() {
   const [showModal, setShowModal] = useState(false)
   const [formImovelId, setFormImovelId] = useState('')
   const [formDescricao, setFormDescricao] = useState('')
-  const [imovelSearch, setImovelSearch] = useState('')
 
   // Modal edição
   const [editando, setEditando] = useState<Ocorrencia | null>(null)
@@ -42,7 +41,6 @@ export default function OcorrenciasPage() {
       setShowModal(false)
       setFormImovelId('')
       setFormDescricao('')
-      setImovelSearch('')
     },
     onError: () => toast.error('Erro ao registrar ocorrência')
   })
@@ -56,13 +54,6 @@ export default function OcorrenciasPage() {
     },
     onError: (err: any) => toast.error(err?.response?.data?.error || 'Erro ao editar ocorrência')
   })
-
-  const imoveisFiltrados = imoveis.filter(im =>
-    im.inscricaoImobiliaria.toLowerCase().includes(imovelSearch.toLowerCase()) ||
-    im.logradouro.toLowerCase().includes(imovelSearch.toLowerCase())
-  ).slice(0, 8)
-
-  const imovelSelecionado = imoveis.find(im => im.id === formImovelId)
 
   const imoveisOrdenados = [...imoveis].sort((a, b) =>
     a.inscricaoImobiliaria.localeCompare(b.inscricaoImobiliaria, 'pt-BR', { numeric: true })
@@ -184,43 +175,19 @@ export default function OcorrenciasPage() {
             <div className="p-5 space-y-4">
               <div>
                 <label className="label">Imóvel</label>
-                {imovelSelecionado ? (
-                  <div className="flex items-center justify-between p-3 bg-primary-50 border border-primary-200 rounded-lg">
-                    <div>
-                      <p className="text-xs font-mono font-semibold text-primary-700">{imovelSelecionado.inscricaoImobiliaria}</p>
-                      <p className="text-xs text-gray-600 mt-0.5">{imovelSelecionado.logradouro}, {imovelSelecionado.bairro}</p>
-                    </div>
-                    <button onClick={() => { setFormImovelId(''); setImovelSearch('') }} className="p-1 hover:bg-primary-100 rounded">
-                      <X className="w-3.5 h-3.5 text-primary-500" />
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <input
-                      className="input"
-                      placeholder="Buscar por inscrição ou endereço..."
-                      value={imovelSearch}
-                      onChange={e => setImovelSearch(e.target.value)}
-                      autoFocus
-                    />
-                    {imovelSearch && (
-                      <div className="mt-1 border border-gray-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
-                        {imoveisFiltrados.length === 0 ? (
-                          <p className="text-xs text-gray-400 p-3">Nenhum imóvel encontrado</p>
-                        ) : imoveisFiltrados.map(im => (
-                          <button
-                            key={im.id}
-                            onClick={() => { setFormImovelId(im.id); setImovelSearch('') }}
-                            className="w-full text-left px-3 py-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-0"
-                          >
-                            <span className="text-xs font-mono font-semibold text-primary-700">{im.inscricaoImobiliaria}</span>
-                            <span className="text-xs text-gray-500 ml-2">{im.logradouro}, {im.bairro}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
+                <select
+                  className="input"
+                  value={formImovelId}
+                  onChange={e => setFormImovelId(e.target.value)}
+                  autoFocus
+                >
+                  <option value="">Selecione a inscrição imobiliária...</option>
+                  {imoveisOrdenados.map(im => (
+                    <option key={im.id} value={im.id}>
+                      {im.inscricaoImobiliaria} — {im.logradouro}, {im.bairro}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
