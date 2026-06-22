@@ -57,8 +57,8 @@ export default function LoginPage() {
             <Image
               src="/brasao.png"
               alt="Brasão de Vitória da Conquista"
-              width={100}
-              height={100}
+              width={150}
+              height={150}
               className="drop-shadow-lg"
               priority
             />
