@@ -26,7 +26,7 @@ export default function EditarImovelPage({ params }: { params: { id: string } })
       qc.invalidateQueries({ queryKey: ['imoveis'] })
       router.push(`/imoveis/${id}`)
     },
-    onError: () => toast.error('Erro ao atualizar')
+    onError: (err: any) => toast.error(err?.response?.data?.error || 'Erro ao atualizar')
   })
 
   if (isLoading) return <div className="p-8 text-center text-gray-400">Carregando...</div>

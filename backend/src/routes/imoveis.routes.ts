@@ -57,8 +57,31 @@ imoveisRouter.post('/', async (req: AuthRequest, res) => {
   res.status(201).json(imovel)
 })
 
+// Campos escalares editáveis do imóvel (evita passar id/createdAt/relations ao Prisma)
+const CAMPOS_IMOVEL = [
+  'inscricaoImobiliaria', 'registroCartorario', 'cartorioImoveis',
+  'logradouro', 'numero', 'complemento', 'bairro', 'cidade', 'estado', 'cep',
+  'secretaria', 'tipo', 'zona', 'latitude', 'longitude', 'area', 'observacoes',
+] as const
+
+function pickImovelData(body: Record<string, unknown>) {
+  const data: Record<string, unknown> = {}
+  for (const campo of CAMPOS_IMOVEL) {
+    if (campo in body) {
+      const v = body[campo]
+      // Normaliza numéricos inválidos para null
+      if (['latitude', 'longitude', 'area'].includes(campo)) {
+        data[campo] = typeof v === 'number' && Number.isFinite(v) ? v : null
+      } else {
+        data[campo] = v
+      }
+    }
+  }
+  return data
+}
+
 imoveisRouter.put('/:id', async (req: AuthRequest, res) => {
-  const { documentos, ...data } = req.body
+  const data = pickImovelData(req.body)
 
   const imovel = await prisma.imovel.update({
     where: { id: req.params.id },
