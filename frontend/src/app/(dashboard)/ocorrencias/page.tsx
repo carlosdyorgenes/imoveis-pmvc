@@ -55,7 +55,7 @@ export default function OcorrenciasPage() {
       qc.invalidateQueries({ queryKey: ['ocorrencias'] })
       setEditando(null)
     },
-    onError: (err: any) => toast.error(err?.response?.data?.message || 'Erro ao editar ocorrência')
+    onError: (err: any) => toast.error(err?.response?.data?.error || 'Erro ao editar ocorrência')
   })
 
   const imoveisFiltrados = imoveis.filter(im =>

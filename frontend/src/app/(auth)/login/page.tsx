@@ -41,7 +41,7 @@ export default function LoginPage() {
       toast.success(res.data.message)
       setForgotSent(true)
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Erro ao enviar solicitação')
+      toast.error(err?.response?.data?.error || 'Erro ao enviar solicitação')
     } finally {
       setForgotLoading(false)
     }
