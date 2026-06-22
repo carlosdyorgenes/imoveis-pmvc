@@ -3,19 +3,27 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Ocorrencia, Imovel } from '@/types'
-import { Search, ClipboardList, Plus, X } from 'lucide-react'
+import { Search, ClipboardList, Plus, X, Pencil } from 'lucide-react'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import toast from 'react-hot-toast'
+import { useAuth } from '@/hooks/useAuth'
 
 export default function OcorrenciasPage() {
   const qc = useQueryClient()
+  const { user } = useAuth()
   const [inscricao, setInscricao] = useState('')
   const [busca, setBusca] = useState('')
+
+  // Modal nova ocorrência
   const [showModal, setShowModal] = useState(false)
   const [formImovelId, setFormImovelId] = useState('')
   const [formDescricao, setFormDescricao] = useState('')
   const [imovelSearch, setImovelSearch] = useState('')
+
+  // Modal edição
+  const [editando, setEditando] = useState<Ocorrencia | null>(null)
+  const [editDescricao, setEditDescricao] = useState('')
 
   const { data: imoveis = [] } = useQuery<Imovel[]>({
     queryKey: ['imoveis'],
@@ -40,6 +48,16 @@ export default function OcorrenciasPage() {
     onError: () => toast.error('Erro ao registrar ocorrência')
   })
 
+  const editMutation = useMutation({
+    mutationFn: () => api.put(`/api/ocorrencias/${editando!.id}`, { descricao: editDescricao }),
+    onSuccess: () => {
+      toast.success('Ocorrência atualizada')
+      qc.invalidateQueries({ queryKey: ['ocorrencias'] })
+      setEditando(null)
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Erro ao editar ocorrência')
+  })
+
   const imoveisFiltrados = imoveis.filter(im =>
     im.inscricaoImobiliaria.toLowerCase().includes(imovelSearch.toLowerCase()) ||
     im.logradouro.toLowerCase().includes(imovelSearch.toLowerCase())
@@ -51,6 +69,8 @@ export default function OcorrenciasPage() {
     MANUAL: 'bg-gray-100 text-gray-600',
     TAREFA: 'bg-blue-100 text-blue-600',
   }
+
+  const podeEditar = (oc: Ocorrencia) => oc.tipo === 'MANUAL' && oc.userId === user?.id
 
   return (
     <div>
@@ -111,11 +131,12 @@ export default function OcorrenciasPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Tipo</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Ocorrência</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Usuário</th>
+                  <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {ocorrencias.map(oc => (
-                  <tr key={oc.id} className="hover:bg-gray-50">
+                  <tr key={oc.id} className="hover:bg-gray-50 group">
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">
                       {format(new Date(oc.createdAt), "dd/MM/yyyy HH:mm", { locale: ptBR })}
                     </td>
@@ -132,6 +153,17 @@ export default function OcorrenciasPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-700 max-w-sm">{oc.descricao}</td>
                     <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{oc.user?.name}</td>
+                    <td className="px-4 py-3">
+                      {podeEditar(oc) && (
+                        <button
+                          onClick={() => { setEditando(oc); setEditDescricao(oc.descricao) }}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-all"
+                          title="Editar ocorrência"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -152,7 +184,6 @@ export default function OcorrenciasPage() {
             </div>
 
             <div className="p-5 space-y-4">
-              {/* Busca de imóvel */}
               <div>
                 <label className="label">Imóvel</label>
                 {imovelSelecionado ? (
@@ -194,7 +225,6 @@ export default function OcorrenciasPage() {
                 )}
               </div>
 
-              {/* Descrição */}
               <div>
                 <label className="label">Descrição da Ocorrência</label>
                 <textarea
@@ -216,6 +246,47 @@ export default function OcorrenciasPage() {
                 className="btn-primary flex-1 justify-center"
               >
                 {createMutation.isPending ? 'Registrando...' : 'Registrar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar Ocorrência */}
+      {editando && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h2 className="font-semibold text-gray-800">Editar Ocorrência</h2>
+              <button onClick={() => setEditando(null)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-5">
+              <div className="mb-4 p-3 bg-gray-50 rounded-lg text-xs text-gray-500">
+                <span className="font-mono font-semibold text-primary-700">{editando.imovel?.inscricaoImobiliaria}</span>
+                {editando.imovel && <span className="ml-2">{editando.imovel.logradouro}, {editando.imovel.bairro}</span>}
+              </div>
+              <label className="label">Descrição</label>
+              <textarea
+                className="input min-h-28 resize-none"
+                value={editDescricao}
+                onChange={e => setEditDescricao(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            <div className="flex gap-3 p-5 border-t border-gray-100">
+              <button onClick={() => setEditando(null)} className="btn-secondary flex-1 justify-center">
+                Cancelar
+              </button>
+              <button
+                onClick={() => editMutation.mutate()}
+                disabled={!editDescricao.trim() || editMutation.isPending}
+                className="btn-primary flex-1 justify-center"
+              >
+                {editMutation.isPending ? 'Salvando...' : 'Salvar'}
               </button>
             </div>
           </div>

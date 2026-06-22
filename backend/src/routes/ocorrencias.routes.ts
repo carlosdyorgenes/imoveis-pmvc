@@ -41,3 +41,22 @@ ocorrenciasRouter.post('/', async (req: AuthRequest, res) => {
   await createLog({ userId: req.user!.id, action: 'CREATE', entity: 'OCORRENCIA', entityId: ocorrencia.id })
   res.status(201).json(ocorrencia)
 })
+
+ocorrenciasRouter.put('/:id', async (req: AuthRequest, res) => {
+  const { descricao } = req.body
+  if (!descricao?.trim()) throw new AppError('Descrição é obrigatória')
+
+  const ocorrencia = await prisma.ocorrencia.findUnique({ where: { id: req.params.id } })
+  if (!ocorrencia) throw new AppError('Ocorrência não encontrada', 404)
+  if (ocorrencia.tipo !== 'MANUAL') throw new AppError('Apenas ocorrências manuais podem ser editadas', 403)
+  if (ocorrencia.userId !== req.user!.id) throw new AppError('Você não tem permissão para editar esta ocorrência', 403)
+
+  const updated = await prisma.ocorrencia.update({
+    where: { id: req.params.id },
+    data: { descricao },
+    include: { user: { select: { name: true } }, imovel: { select: { inscricaoImobiliaria: true, logradouro: true, bairro: true } } }
+  })
+
+  await createLog({ userId: req.user!.id, action: 'UPDATE', entity: 'OCORRENCIA', entityId: ocorrencia.id })
+  res.json(updated)
+})
