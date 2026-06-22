@@ -2,7 +2,8 @@
 import { useState } from 'react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { Imovel } from '@/types'
-import { Plus, Trash2, ExternalLink } from 'lucide-react'
+import { Plus, Trash2, ExternalLink, Loader2 } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 export interface ImovelFormData {
   inscricaoImobiliaria: string
@@ -37,7 +38,8 @@ const estados = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG
 
 export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
   const [tab, setTab] = useState(0)
-  const { register, handleSubmit, control, formState: { errors } } = useForm<ImovelFormData>({
+  const [buscandoCep, setBuscandoCep] = useState(false)
+  const { register, handleSubmit, control, setValue, setFocus, formState: { errors } } = useForm<ImovelFormData>({
     defaultValues: {
       tipo: 'PROPRIO',
       zona: 'URBANO',
@@ -49,6 +51,31 @@ export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
   })
 
   const { fields, append, remove } = useFieldArray({ control, name: 'documentos' })
+
+  const buscarCep = async (cepRaw: string) => {
+    const cep = cepRaw.replace(/\D/g, '')
+    if (cep.length !== 8) return
+    setBuscandoCep(true)
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`)
+      const data = await res.json()
+      if (data.erro) {
+        toast.error('CEP não encontrado')
+        return
+      }
+      if (data.logradouro) setValue('logradouro', data.logradouro)
+      if (data.bairro) setValue('bairro', data.bairro)
+      if (data.localidade) setValue('cidade', data.localidade)
+      if (data.uf) setValue('estado', data.uf)
+      if (data.complemento) setValue('complemento', data.complemento)
+      toast.success('Endereço preenchido pelo CEP')
+      setFocus('numero')
+    } catch {
+      toast.error('Erro ao consultar o CEP')
+    } finally {
+      setBuscandoCep(false)
+    }
+  }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)}>
@@ -113,7 +140,26 @@ export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
             </div>
             <div>
               <label className="label">CEP</label>
-              <input {...register('cep')} className="input" placeholder="00000-000" />
+              <div className="relative">
+                <input
+                  {...register('cep', {
+                    onBlur: (e) => buscarCep(e.target.value),
+                  })}
+                  className="input pr-9"
+                  placeholder="00000-000"
+                  maxLength={9}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      buscarCep((e.target as HTMLInputElement).value)
+                    }
+                  }}
+                />
+                {buscandoCep && (
+                  <Loader2 className="absolute right-2.5 top-2.5 w-4 h-4 text-primary-500 animate-spin" />
+                )}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Preenche o endereço automaticamente</p>
             </div>
           </div>
 
