@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { Tarefa, Etapa, TarefaCard, Imovel, Passo } from '@/types'
 import {
   Plus, Trash2, Building2, X, ArrowRight, ArrowLeft, CheckCircle2,
-  ListChecks, ChevronRight, Flag
+  ListChecks, ChevronRight, Flag, Pencil, Check
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/hooks/useAuth'
@@ -36,6 +36,10 @@ export default function TarefasPage() {
   // Criação de tarefa
   const [showNovaTarefa, setShowNovaTarefa] = useState(false)
   const [novaTarefaTitulo, setNovaTarefaTitulo] = useState('')
+
+  // Edição do nome da tarefa
+  const [editandoTarefa, setEditandoTarefa] = useState<string | null>(null)
+  const [editTarefaTitulo, setEditTarefaTitulo] = useState('')
 
   // Criação de etapa (por tarefa)
   const [addEtapaTarefa, setAddEtapaTarefa] = useState<string | null>(null)
@@ -77,6 +81,13 @@ export default function TarefasPage() {
     mutationFn: (id: string) => api.delete(`/api/tarefas/${id}`),
     onSuccess: () => { invalidar(); toast.success('Tarefa removida') },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao remover tarefa'))
+  })
+
+  const editTarefa = useMutation({
+    mutationFn: ({ id, titulo }: { id: string; titulo: string }) =>
+      api.put(`/api/tarefas/${id}`, { titulo }),
+    onSuccess: () => { invalidar(); setEditandoTarefa(null); setEditTarefaTitulo(''); toast.success('Tarefa renomeada') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao renomear tarefa'))
   })
 
   const createEtapa = useMutation({
@@ -199,20 +210,58 @@ export default function TarefasPage() {
           <div key={tarefa.id} className="card p-4">
             {/* Cabeçalho da linha */}
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Flag className="w-4 h-4 text-primary-600" />
-                <h2 className="font-bold text-gray-800">{tarefa.titulo}</h2>
-                <span className="bg-gray-100 text-gray-500 text-xs px-2 py-0.5 rounded-full">
-                  {tarefa.etapas.reduce((acc, e) => acc + e.cards.length, 0)} imóvel(is)
-                </span>
-              </div>
-              {isMaster && (
-                <button
-                  onClick={() => confirm(`Excluir a tarefa "${tarefa.titulo}" e todas as suas etapas?`) && deleteTarefa.mutate(tarefa.id)}
-                  className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+              {editandoTarefa === tarefa.id ? (
+                <div className="flex items-center gap-2 flex-1">
+                  <Flag className="w-4 h-4 text-primary-600 flex-shrink-0" />
+                  <input
+                    autoFocus
+                    className="input text-sm py-1 max-w-xs"
+                    value={editTarefaTitulo}
+                    onChange={e => setEditTarefaTitulo(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && editTarefaTitulo.trim()) editTarefa.mutate({ id: tarefa.id, titulo: editTarefaTitulo.trim() })
+                      if (e.key === 'Escape') setEditandoTarefa(null)
+                    }}
+                  />
+                  <button
+                    onClick={() => editTarefaTitulo.trim() && editTarefa.mutate({ id: tarefa.id, titulo: editTarefaTitulo.trim() })}
+                    disabled={!editTarefaTitulo.trim() || editTarefa.isPending}
+                    className="btn-primary text-xs"
+                  >
+                    <Check className="w-3.5 h-3.5" /> Salvar
+                  </button>
+                  <button onClick={() => setEditandoTarefa(null)} className="btn-secondary text-xs">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Flag className="w-4 h-4 text-primary-600" />
+                  <h2 className="font-bold text-gray-800">{tarefa.titulo}</h2>
+                  <span className="bg-gray-100 text-gray-500 text-xs px-2 py-0.5 rounded-full">
+                    {tarefa.etapas.reduce((acc, e) => acc + e.cards.length, 0)} imóvel(is)
+                  </span>
+                </div>
+              )}
+              {editandoTarefa !== tarefa.id && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => { setEditandoTarefa(tarefa.id); setEditTarefaTitulo(tarefa.titulo) }}
+                    className="p-1.5 text-gray-300 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+                    title="Editar nome da tarefa"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  {isMaster && (
+                    <button
+                      onClick={() => confirm(`Excluir a tarefa "${tarefa.titulo}" e todas as suas etapas?`) && deleteTarefa.mutate(tarefa.id)}
+                      className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Excluir tarefa"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
