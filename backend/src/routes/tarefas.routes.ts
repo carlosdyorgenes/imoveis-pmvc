@@ -202,6 +202,41 @@ tarefasRouter.put('/cards/:cardId/avancar', async (req: AuthRequest, res) => {
   res.json(atualizado)
 })
 
+// Retornar card para a etapa anterior (para complementar passos daquela etapa)
+tarefasRouter.put('/cards/:cardId/retornar', async (req: AuthRequest, res) => {
+  const card = await prisma.tarefaCard.findUnique({
+    where: { id: req.params.cardId },
+    include: {
+      etapa: { include: { tarefa: { include: { etapas: { orderBy: { ordem: 'asc' } } } } } },
+    },
+  })
+  if (!card) throw new AppError('Card não encontrado', 404)
+
+  const etapas = card.etapa.tarefa.etapas
+  const idxAtual = etapas.findIndex(e => e.id === card.etapaId)
+  const anterior = etapas[idxAtual - 1]
+  if (!anterior) throw new AppError('Este imóvel já está na primeira etapa')
+
+  const count = await prisma.tarefaCard.count({ where: { etapaId: anterior.id } })
+  const atualizado = await prisma.tarefaCard.update({
+    where: { id: card.id },
+    data: { etapaId: anterior.id, ordem: count },
+    include: CARD_INCLUDE,
+  })
+
+  await prisma.ocorrencia.create({
+    data: {
+      imovelId: card.imovelId,
+      userId: req.user!.id,
+      descricao: `Imóvel retornou de "${card.etapa.titulo}" para "${anterior.titulo}" na tarefa "${card.etapa.tarefa.titulo}"`,
+      tipo: 'TAREFA',
+    },
+  })
+
+  await createLog({ userId: req.user!.id, action: 'MOVE', entity: 'TAREFA_CARD', entityId: card.id, details: `Retornou para etapa: ${anterior.titulo}` })
+  res.json(atualizado)
+})
+
 // ===== Passos (checklist do card na etapa atual) =====
 
 tarefasRouter.post('/cards/:cardId/passos', async (req: AuthRequest, res) => {

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Tarefa, Etapa, TarefaCard, Imovel, Passo } from '@/types'
 import {
-  Plus, Trash2, Building2, X, ArrowRight, CheckCircle2,
+  Plus, Trash2, Building2, X, ArrowRight, ArrowLeft, CheckCircle2,
   ListChecks, ChevronRight, Flag
 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -111,6 +111,12 @@ export default function TarefasPage() {
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao avançar'))
   })
 
+  const retornarCard = useMutation({
+    mutationFn: (id: string) => api.put(`/api/tarefas/cards/${id}/retornar`),
+    onSuccess: () => { invalidar(); toast.success('Imóvel retornou para a etapa anterior') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao retornar'))
+  })
+
   const addPasso = useMutation({
     mutationFn: (cardId: string) => api.post(`/api/tarefas/cards/${cardId}/passos`, { descricao: novoPasso }),
     onSuccess: () => { invalidar(); setNovoPasso('') },
@@ -131,14 +137,14 @@ export default function TarefasPage() {
   })
 
   // Localiza o card aberto (dados sempre atualizados do cache)
-  const cardModal: { card: TarefaCard; etapa: Etapa; tarefa: Tarefa; isUltima: boolean } | null = (() => {
+  const cardModal: { card: TarefaCard; etapa: Etapa; tarefa: Tarefa; isUltima: boolean; isPrimeira: boolean } | null = (() => {
     if (!cardAberto) return null
     for (const t of tarefas) {
       for (const e of t.etapas) {
         const c = e.cards.find(c => c.id === cardAberto)
         if (c) {
           const idx = t.etapas.findIndex(et => et.id === e.id)
-          return { card: c, etapa: e, tarefa: t, isUltima: idx === t.etapas.length - 1 }
+          return { card: c, etapa: e, tarefa: t, isUltima: idx === t.etapas.length - 1, isPrimeira: idx === 0 }
         }
       }
     }
@@ -514,6 +520,16 @@ export default function TarefasPage() {
                 <p className="text-center text-xs text-amber-600">
                   {passosAtuais.filter(p => !p.concluido).length} passo(s) pendente(s) para liberar o avanço
                 </p>
+              )}
+              {!cardModal.isPrimeira && (
+                <button
+                  onClick={() => confirm(`Retornar o imóvel para a etapa anterior? Os passos daquela etapa voltarão a ser editáveis.`) && retornarCard.mutate(cardModal.card.id)}
+                  disabled={retornarCard.isPending}
+                  className="btn-secondary w-full justify-center text-xs"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  {retornarCard.isPending ? 'Retornando...' : 'Retornar à etapa anterior'}
+                </button>
               )}
               <button
                 onClick={() => confirm('Remover este imóvel da tarefa?') && deleteCard.mutate(cardModal.card.id)}
