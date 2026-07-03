@@ -58,9 +58,18 @@ export interface Ocorrencia {
   imovel?: { inscricaoImobiliaria: string; logradouro: string; bairro: string }
 }
 
+export interface Passo {
+  id: string
+  cardId: string
+  descricao: string
+  concluido: boolean
+  ordem: number
+  createdAt: string
+}
+
 export interface TarefaCard {
   id: string
-  tarefaId: string
+  etapaId: string
   imovelId: string
   userId: string
   observacoes?: string
@@ -68,6 +77,16 @@ export interface TarefaCard {
   createdAt: string
   imovel: Imovel
   user: { name: string }
+  passos: Passo[]
+}
+
+export interface Etapa {
+  id: string
+  tarefaId: string
+  titulo: string
+  ordem: number
+  cards: TarefaCard[]
+  createdAt: string
 }
 
 export interface Tarefa {
@@ -75,7 +94,7 @@ export interface Tarefa {
   titulo: string
   descricao?: string
   ordem: number
-  cards: TarefaCard[]
+  etapas: Etapa[]
   createdAt: string
 }
 

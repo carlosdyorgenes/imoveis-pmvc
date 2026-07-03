@@ -105,23 +105,36 @@ model Ocorrencia {
 }
 
 model Tarefa {
-  id          String       @id @default(uuid())
+  id          String   @id @default(uuid())
   titulo      String
   descricao   String?
-  ordem       Int          @default(0)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  ordem       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
   createdById String
 
-  createdBy   User         @relation(fields: [createdById], references: [id])
-  cards       TarefaCard[]
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  etapas      Etapa[]
 
   @@map("tarefas")
 }
 
+model Etapa {
+  id        String       @id @default(uuid())
+  tarefaId  String
+  titulo    String
+  ordem     Int          @default(0)
+  createdAt DateTime     @default(now())
+
+  tarefa    Tarefa       @relation(fields: [tarefaId], references: [id], onDelete: Cascade)
+  cards     TarefaCard[]
+
+  @@map("etapas")
+}
+
 model TarefaCard {
   id           String   @id @default(uuid())
-  tarefaId     String
+  etapaId      String
   imovelId     String
   userId       String
   observacoes  String?
@@ -129,11 +142,25 @@ model TarefaCard {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  tarefa       Tarefa   @relation(fields: [tarefaId], references: [id], onDelete: Cascade)
+  etapa        Etapa    @relation(fields: [etapaId], references: [id], onDelete: Cascade)
   imovel       Imovel   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
   user         User     @relation(fields: [userId], references: [id])
+  passos       Passo[]
 
   @@map("tarefa_cards")
+}
+
+model Passo {
+  id        String     @id @default(uuid())
+  cardId    String
+  descricao String
+  concluido Boolean    @default(false)
+  ordem     Int        @default(0)
+  createdAt DateTime   @default(now())
+
+  card      TarefaCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@map("passos")
 }
 
 model SolicitacaoSenha {

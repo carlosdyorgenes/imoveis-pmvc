@@ -173,12 +173,25 @@ relatoriosRouter.get('/ocorrencias/excel', async (req: AuthRequest, res: Respons
   await wb.xlsx.write(res)
 })
 
+const TAREFAS_REPORT_INCLUDE = {
+  etapas: {
+    include: {
+      cards: {
+        include: {
+          imovel: { select: { inscricaoImobiliaria: true, logradouro: true, bairro: true } },
+          user: { select: { name: true } },
+          passos: true,
+        },
+      },
+    },
+    orderBy: { ordem: 'asc' as const },
+  },
+}
+
 // ---- Tarefas PDF ----
 relatoriosRouter.get('/tarefas/pdf', async (req: AuthRequest, res: Response) => {
   const tarefas = await prisma.tarefa.findMany({
-    include: {
-      cards: { include: { imovel: { select: { inscricaoImobiliaria: true, logradouro: true, bairro: true } }, user: { select: { name: true } } } }
-    },
+    include: TAREFAS_REPORT_INCLUDE,
     orderBy: { ordem: 'asc' }
   })
 
@@ -192,10 +205,17 @@ relatoriosRouter.get('/tarefas/pdf', async (req: AuthRequest, res: Response) => 
   doc.moveDown()
 
   tarefas.forEach(t => {
-    doc.fontSize(12).fillColor('#1e40af').text(`${t.titulo} (${t.cards.length} imóveis)`)
+    const totalCards = t.etapas.reduce((acc, e) => acc + e.cards.length, 0)
+    doc.fontSize(13).fillColor('#1e40af').text(`Tarefa: ${t.titulo} (${totalCards} imóvel(is))`)
     doc.fillColor('#000000')
-    t.cards.forEach(c => {
-      doc.fontSize(9).text(`  • ${c.imovel.inscricaoImobiliaria} - ${c.imovel.logradouro}, ${c.imovel.bairro} | Resp: ${c.user.name}`)
+    t.etapas.forEach(e => {
+      doc.fontSize(11).fillColor('#374151').text(`  Etapa: ${e.titulo} (${e.cards.length})`)
+      doc.fillColor('#000000')
+      e.cards.forEach(c => {
+        const concluidos = c.passos.filter(p => p.concluido).length
+        const progresso = c.passos.length > 0 ? ` | Passos: ${concluidos}/${c.passos.length}` : ''
+        doc.fontSize(9).text(`    • ${c.imovel.inscricaoImobiliaria} - ${c.imovel.logradouro}, ${c.imovel.bairro} | Resp: ${c.user.name}${progresso}`)
+      })
     })
     doc.moveDown(0.5)
   })
@@ -206,32 +226,37 @@ relatoriosRouter.get('/tarefas/pdf', async (req: AuthRequest, res: Response) => 
 // ---- Tarefas Excel ----
 relatoriosRouter.get('/tarefas/excel', async (req: AuthRequest, res: Response) => {
   const tarefas = await prisma.tarefa.findMany({
-    include: {
-      cards: { include: { imovel: { select: { inscricaoImobiliaria: true, logradouro: true, bairro: true } }, user: { select: { name: true } } } }
-    },
+    include: TAREFAS_REPORT_INCLUDE,
     orderBy: { ordem: 'asc' }
   })
 
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Tarefas')
   ws.columns = [
+    { header: 'Tarefa', key: 'tarefa', width: 25 },
     { header: 'Etapa', key: 'etapa', width: 25 },
     { header: 'Inscrição', key: 'inscricao', width: 22 },
     { header: 'Endereço', key: 'endereco', width: 40 },
     { header: 'Responsável', key: 'responsavel', width: 20 },
+    { header: 'Passos', key: 'passos', width: 12 },
     { header: 'Adicionado em', key: 'data', width: 20 },
     { header: 'Observações', key: 'obs', width: 30 },
   ]
   ws.getRow(1).font = { bold: true }
   tarefas.forEach(t => {
-    t.cards.forEach(c => {
-      ws.addRow({
-        etapa: t.titulo,
-        inscricao: c.imovel.inscricaoImobiliaria,
-        endereco: `${c.imovel.logradouro}, ${c.imovel.bairro}`,
-        responsavel: c.user.name,
-        data: formatDate(c.createdAt),
-        obs: c.observacoes || ''
+    t.etapas.forEach(e => {
+      e.cards.forEach(c => {
+        const concluidos = c.passos.filter(p => p.concluido).length
+        ws.addRow({
+          tarefa: t.titulo,
+          etapa: e.titulo,
+          inscricao: c.imovel.inscricaoImobiliaria,
+          endereco: `${c.imovel.logradouro}, ${c.imovel.bairro}`,
+          responsavel: c.user.name,
+          passos: c.passos.length > 0 ? `${concluidos}/${c.passos.length}` : '-',
+          data: formatDate(c.createdAt),
+          obs: c.observacoes || ''
+        })
       })
     })
   })
@@ -267,7 +292,7 @@ relatoriosRouter.get('/resumo/pdf', async (req: AuthRequest, res: Response) => {
   porZona.forEach(g => doc.text(`  • ${g.zona}: ${g._count}`))
   doc.moveDown()
   doc.fontSize(11).text(`Total de Ocorrências: ${totalOcorrencias}`)
-  doc.text(`Total de Etapas Kanban: ${totalTarefas}`)
+  doc.text(`Total de Tarefas: ${totalTarefas}`)
 
   doc.end()
 })
