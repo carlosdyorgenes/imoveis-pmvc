@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { Tarefa, Etapa, TarefaCard, Imovel } from '@/types'
+import { Tarefa, Etapa, TarefaCard, Imovel, Passo } from '@/types'
 import {
   Plus, Trash2, Building2, X, ArrowRight, CheckCircle2,
   ListChecks, ChevronRight, Flag
@@ -11,6 +11,23 @@ import toast from 'react-hot-toast'
 import { useAuth } from '@/hooks/useAuth'
 
 const errMsg = (err: any, fallback: string) => err?.response?.data?.error || fallback
+
+// Passos da etapa em que o card está agora (o restante é histórico)
+const passosDaEtapaAtual = (card: TarefaCard) =>
+  card.passos.filter(p => (p.etapaId ?? card.etapaId) === card.etapaId)
+
+// Histórico agrupado por etapa anterior, na ordem em que os passos foram criados
+const historicoPorEtapa = (card: TarefaCard) => {
+  const grupos: { titulo: string; passos: Passo[] }[] = []
+  for (const p of card.passos) {
+    if ((p.etapaId ?? card.etapaId) === card.etapaId) continue
+    const titulo = p.etapaTitulo || 'Etapa anterior'
+    const grupo = grupos.find(g => g.titulo === titulo)
+    if (grupo) grupo.passos.push(p)
+    else grupos.push({ titulo, passos: [p] })
+  }
+  return grupos
+}
 
 export default function TarefasPage() {
   const qc = useQueryClient()
@@ -128,9 +145,9 @@ export default function TarefasPage() {
     return null
   })()
 
-  const todosConcluidos = cardModal
-    ? cardModal.card.passos.length > 0 && cardModal.card.passos.every(p => p.concluido)
-    : false
+  const passosAtuais = cardModal ? passosDaEtapaAtual(cardModal.card) : []
+  const historico = cardModal ? historicoPorEtapa(cardModal.card) : []
+  const todosConcluidos = passosAtuais.length > 0 && passosAtuais.every(p => p.concluido)
 
   return (
     <div>
@@ -223,8 +240,9 @@ export default function TarefasPage() {
                     {/* Cards da etapa */}
                     <div className="space-y-1.5 flex-1">
                       {etapa.cards.map(card => {
-                        const done = card.passos.filter(p => p.concluido).length
-                        const total = card.passos.length
+                        const atuais = passosDaEtapaAtual(card)
+                        const done = atuais.filter(p => p.concluido).length
+                        const total = atuais.length
                         const completo = total > 0 && done === total
                         return (
                           <button
@@ -415,12 +433,12 @@ export default function TarefasPage() {
                 </button>
               </div>
 
-              {/* Lista de passos */}
-              {cardModal.card.passos.length === 0 ? (
+              {/* Lista de passos da etapa atual */}
+              {passosAtuais.length === 0 ? (
                 <p className="text-center text-sm text-gray-400 py-6">Nenhum passo cadastrado nesta etapa</p>
               ) : (
                 <div className="space-y-1.5">
-                  {cardModal.card.passos.map(passo => (
+                  {passosAtuais.map(passo => (
                     <div
                       key={passo.id}
                       className={`flex items-center gap-3 p-2.5 rounded-lg border group transition-colors ${
@@ -446,6 +464,30 @@ export default function TarefasPage() {
                   ))}
                 </div>
               )}
+
+              {/* Histórico das etapas anteriores (somente leitura) */}
+              {historico.length > 0 && (
+                <div className="mt-5 pt-4 border-t border-gray-100">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-gray-400" /> Histórico de etapas anteriores
+                  </h4>
+                  <div className="space-y-3">
+                    {historico.map(grupo => (
+                      <div key={grupo.titulo} className="bg-gray-50 border border-gray-100 rounded-lg p-3">
+                        <p className="text-xs font-medium text-gray-600 mb-1.5">{grupo.titulo}</p>
+                        <div className="space-y-1">
+                          {grupo.passos.map(p => (
+                            <div key={p.id} className="flex items-center gap-2 text-xs text-gray-400">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
+                              <span className="line-through">{p.descricao}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="p-5 border-t border-gray-100 space-y-2">
@@ -468,9 +510,9 @@ export default function TarefasPage() {
                   {avancarCard.isPending ? 'Avançando...' : 'Avançar para próxima etapa'}
                 </button>
               )}
-              {!todosConcluidos && !cardModal.isUltima && cardModal.card.passos.length > 0 && (
+              {!todosConcluidos && !cardModal.isUltima && passosAtuais.length > 0 && (
                 <p className="text-center text-xs text-amber-600">
-                  {cardModal.card.passos.filter(p => !p.concluido).length} passo(s) pendente(s) para liberar o avanço
+                  {passosAtuais.filter(p => !p.concluido).length} passo(s) pendente(s) para liberar o avanço
                 </p>
               )}
               <button

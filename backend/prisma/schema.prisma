@@ -151,14 +151,17 @@ model TarefaCard {
 }
 
 model Passo {
-  id        String     @id @default(uuid())
-  cardId    String
-  descricao String
-  concluido Boolean    @default(false)
-  ordem     Int        @default(0)
-  createdAt DateTime   @default(now())
+  id          String     @id @default(uuid())
+  cardId      String
+  descricao   String
+  concluido   Boolean    @default(false)
+  ordem       Int        @default(0)
+  // Etapa em que o passo foi criado (snapshot para histórico)
+  etapaId     String?
+  etapaTitulo String?
+  createdAt   DateTime   @default(now())
 
-  card      TarefaCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  card        TarefaCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
 
   @@map("passos")
 }

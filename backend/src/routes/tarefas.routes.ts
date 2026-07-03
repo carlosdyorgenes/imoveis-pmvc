@@ -162,7 +162,9 @@ tarefasRouter.put('/cards/:cardId/avancar', async (req: AuthRequest, res) => {
   })
   if (!card) throw new AppError('Card não encontrado', 404)
 
-  const pendentes = card.passos.filter(p => !p.concluido)
+  // Considera apenas os passos da etapa atual (os anteriores são histórico)
+  const passosAtuais = card.passos.filter(p => (p.etapaId ?? card.etapaId) === card.etapaId)
+  const pendentes = passosAtuais.filter(p => !p.concluido)
   if (pendentes.length > 0) {
     throw new AppError(`Ainda há ${pendentes.length} passo(s) pendente(s) nesta etapa`)
   }
@@ -173,9 +175,13 @@ tarefasRouter.put('/cards/:cardId/avancar', async (req: AuthRequest, res) => {
   if (!proxima) throw new AppError('Este imóvel já está na última etapa')
 
   const count = await prisma.tarefaCard.count({ where: { etapaId: proxima.id } })
-  // Move e limpa os passos (a nova etapa terá seus próprios passos)
+  // Move o card mantendo os passos anteriores como histórico da etapa em que foram criados
   const atualizado = await prisma.$transaction(async tx => {
-    await tx.passo.deleteMany({ where: { cardId: card.id } })
+    // Garante que passos antigos sem etapa registrada fiquem vinculados à etapa que está sendo concluída
+    await tx.passo.updateMany({
+      where: { cardId: card.id, etapaId: null },
+      data: { etapaId: card.etapaId, etapaTitulo: card.etapa.titulo },
+    })
     return tx.tarefaCard.update({
       where: { id: card.id },
       data: { etapaId: proxima.id, ordem: count },
@@ -202,17 +208,40 @@ tarefasRouter.post('/cards/:cardId/passos', async (req: AuthRequest, res) => {
   const { descricao } = req.body
   if (!descricao?.trim()) throw new AppError('Descrição do passo é obrigatória')
 
-  const card = await prisma.tarefaCard.findUnique({ where: { id: req.params.cardId } })
+  const card = await prisma.tarefaCard.findUnique({
+    where: { id: req.params.cardId },
+    include: { etapa: { select: { titulo: true } } },
+  })
   if (!card) throw new AppError('Card não encontrado', 404)
 
   const count = await prisma.passo.count({ where: { cardId: card.id } })
   const passo = await prisma.passo.create({
-    data: { cardId: card.id, descricao: descricao.trim(), ordem: count },
+    data: {
+      cardId: card.id,
+      descricao: descricao.trim(),
+      ordem: count,
+      etapaId: card.etapaId,
+      etapaTitulo: card.etapa.titulo,
+    },
   })
   res.status(201).json(passo)
 })
 
+// Bloqueia alteração de passos de etapas anteriores (histórico é somente leitura)
+async function assertPassoEditavel(passoId: string) {
+  const passo = await prisma.passo.findUnique({
+    where: { id: passoId },
+    include: { card: { select: { etapaId: true } } },
+  })
+  if (!passo) throw new AppError('Passo não encontrado', 404)
+  if (passo.etapaId && passo.etapaId !== passo.card.etapaId) {
+    throw new AppError('Passos de etapas anteriores são histórico e não podem ser alterados')
+  }
+  return passo
+}
+
 tarefasRouter.put('/passos/:id', async (req: AuthRequest, res) => {
+  await assertPassoEditavel(req.params.id)
   const { concluido, descricao } = req.body
   const passo = await prisma.passo.update({
     where: { id: req.params.id },
@@ -225,6 +254,7 @@ tarefasRouter.put('/passos/:id', async (req: AuthRequest, res) => {
 })
 
 tarefasRouter.delete('/passos/:id', async (req: AuthRequest, res) => {
+  await assertPassoEditavel(req.params.id)
   await prisma.passo.delete({ where: { id: req.params.id } })
   res.json({ message: 'Passo removido' })
 })

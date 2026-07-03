@@ -64,6 +64,8 @@ export interface Passo {
   descricao: string
   concluido: boolean
   ordem: number
+  etapaId?: string | null
+  etapaTitulo?: string | null
   createdAt: string
 }
 
