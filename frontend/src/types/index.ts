@@ -5,6 +5,20 @@ export type ZonaImovel = 'URBANO' | 'RURAL'
 export type StatusDemanda = 'ABERTA' | 'EM_ANDAMENTO' | 'AGUARDANDO_TERCEIRO' | 'DEVOLVIDA' | 'CONCLUIDA' | 'CANCELADA'
 export type StatusAtividade = 'ATRIBUIDA' | 'EM_ANDAMENTO' | 'CONCLUIDA' | 'DEVOLVIDA' | 'APROVADA' | 'CANCELADA'
 
+export interface Perfil {
+  id: string
+  nome: string
+  descricao?: string
+  permissoes: string[]
+  createdAt: string
+  usuarios: { id: string; name: string; email: string }[]
+}
+
+export interface PermissaoDisponivel {
+  chave: string
+  descricao: string
+}
+
 export interface User {
   id: string
   name: string
@@ -12,6 +26,8 @@ export interface User {
   role: UserRole
   active: boolean
   createdAt: string
+  perfilId?: string | null
+  perfil?: { id: string; nome: string } | null
 }
 
 export interface Documento {

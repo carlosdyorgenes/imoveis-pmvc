@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import {
   Building2, LayoutDashboard, MapPin, ClipboardList,
-  KanbanSquare, BarChart3, Users, ScrollText, LogOut, Menu, X, Bell, FileStack, UsersRound, Workflow
+  KanbanSquare, BarChart3, Users, ScrollText, LogOut, Menu, X, Bell, FileStack, UsersRound, Workflow, ShieldCheck
 } from 'lucide-react'
 import { useState } from 'react'
 import toast from 'react-hot-toast'
@@ -25,6 +25,7 @@ const navItems = [
   { href: '/relatorios', label: 'Relatórios', icon: BarChart3 },
   { href: '/equipes', label: 'Equipes', icon: UsersRound, masterOnly: true },
   { href: '/tipos-demanda', label: 'Tipos de Demanda', icon: Workflow, masterOnly: true },
+  { href: '/perfis', label: 'Perfis de Acesso', icon: ShieldCheck, masterOnly: true },
   { href: '/usuarios', label: 'Usuários', icon: Users, masterOnly: true },
   { href: '/logs', label: 'Logs', icon: ScrollText, masterOnly: true },
 ]

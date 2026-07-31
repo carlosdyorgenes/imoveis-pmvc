@@ -10,7 +10,7 @@ usuariosRouter.use(authenticate)
 
 usuariosRouter.get('/', async (req, res) => {
   const users = await prisma.user.findMany({
-    select: { id: true, name: true, email: true, role: true, active: true, createdAt: true }
+    select: { id: true, name: true, email: true, role: true, active: true, createdAt: true, perfil: { select: { id: true, nome: true } } }
   })
   res.json(users)
 })

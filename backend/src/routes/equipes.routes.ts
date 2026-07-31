@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { prisma } from '../lib/prisma'
-import { authenticate, requireMaster, AuthRequest } from '../middleware/auth'
+import { authenticate, requirePermissao, AuthRequest } from '../middleware/auth'
 import { AppError } from '../middleware/errorHandler'
 import { createLog } from '../utils/logger'
 
@@ -16,7 +16,7 @@ equipesRouter.get('/', async (req, res) => {
   res.json(equipes)
 })
 
-equipesRouter.post('/', requireMaster, async (req: AuthRequest, res) => {
+equipesRouter.post('/', requirePermissao('equipes.gerenciar'), async (req: AuthRequest, res) => {
   const { nome, descricao } = req.body
   if (!nome?.trim()) throw new AppError('Nome da equipe é obrigatório')
 
@@ -28,7 +28,7 @@ equipesRouter.post('/', requireMaster, async (req: AuthRequest, res) => {
   res.status(201).json(equipe)
 })
 
-equipesRouter.put('/:id', requireMaster, async (req: AuthRequest, res) => {
+equipesRouter.put('/:id', requirePermissao('equipes.gerenciar'), async (req: AuthRequest, res) => {
   const { nome, descricao, ativo } = req.body
   const equipe = await prisma.equipe.update({
     where: { id: req.params.id },
@@ -38,12 +38,12 @@ equipesRouter.put('/:id', requireMaster, async (req: AuthRequest, res) => {
   res.json(equipe)
 })
 
-equipesRouter.delete('/:id', requireMaster, async (req: AuthRequest, res) => {
+equipesRouter.delete('/:id', requirePermissao('equipes.gerenciar'), async (req: AuthRequest, res) => {
   await prisma.equipe.delete({ where: { id: req.params.id } })
   res.json({ message: 'Equipe removida' })
 })
 
-equipesRouter.post('/:id/membros', requireMaster, async (req: AuthRequest, res) => {
+equipesRouter.post('/:id/membros', requirePermissao('equipes.gerenciar'), async (req: AuthRequest, res) => {
   const { userId, principal } = req.body
   if (!userId) throw new AppError('Usuário é obrigatório')
 
@@ -60,7 +60,7 @@ equipesRouter.post('/:id/membros', requireMaster, async (req: AuthRequest, res) 
   res.status(201).json(membro)
 })
 
-equipesRouter.delete('/membros/:membroId', requireMaster, async (req: AuthRequest, res) => {
+equipesRouter.delete('/membros/:membroId', requirePermissao('equipes.gerenciar'), async (req: AuthRequest, res) => {
   await prisma.equipeMembro.delete({ where: { id: req.params.membroId } })
   res.json({ message: 'Membro removido da equipe' })
 })

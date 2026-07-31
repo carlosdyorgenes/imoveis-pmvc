@@ -35,10 +35,14 @@ model User {
   email     String   @unique
   password  String
   role      UserRole @default(PADRAO)
+  // Perfil customizado opcional: concede permissões extras a um usuário PADRAO sem
+  // torná-lo MASTER. MASTER sempre tem acesso total, com ou sem perfil.
+  perfilId  String?
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  perfil                 Perfil?            @relation(fields: [perfilId], references: [id])
   ocorrencias            Ocorrencia[]
   tarefaCards            TarefaCard[]
   logs                   Log[]
@@ -53,6 +57,22 @@ model User {
   comentarios            Comentario[]
 
   @@map("users")
+}
+
+// Perfil customizável (RBAC dinâmico simplificado): o admin define um conjunto de
+// permissões nomeadas e atribui o perfil a usuários PADRAO. Não substitui MASTER/PADRAO
+// (que continuam controlando o restante do sistema já validado) — apenas adiciona acesso
+// a recursos administrativos específicos deste módulo (equipes, tipos de demanda etc.).
+model Perfil {
+  id         String   @id @default(uuid())
+  nome       String   @unique
+  descricao  String?
+  permissoes String[] @default([])
+  createdAt  DateTime @default(now())
+
+  usuarios User[]
+
+  @@map("perfis")
 }
 
 model Comentario {

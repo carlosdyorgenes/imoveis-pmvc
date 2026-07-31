@@ -17,6 +17,7 @@ import { notificacoesRouter } from './routes/notificacoes.routes'
 import { usuariosRouter } from './routes/usuarios.routes'
 import { relatoriosRouter } from './routes/relatorios.routes'
 import { logsRouter } from './routes/logs.routes'
+import { perfisRouter } from './routes/perfis.routes'
 import { errorHandler } from './middleware/errorHandler'
 
 const app = express()
@@ -44,6 +45,7 @@ app.use('/api/notificacoes', notificacoesRouter)
 app.use('/api/usuarios', usuariosRouter)
 app.use('/api/relatorios', relatoriosRouter)
 app.use('/api/logs', logsRouter)
+app.use('/api/perfis', perfisRouter)
 
 app.use(errorHandler)
 

@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { prisma } from '../lib/prisma'
-import { authenticate, requireMaster, AuthRequest } from '../middleware/auth'
+import { authenticate, requirePermissao, AuthRequest } from '../middleware/auth'
 import { AppError } from '../middleware/errorHandler'
 
 export const tiposDemandaRouter = Router()
@@ -19,7 +19,7 @@ tiposDemandaRouter.get('/', async (req, res) => {
   res.json(tipos)
 })
 
-tiposDemandaRouter.post('/', requireMaster, async (req: AuthRequest, res) => {
+tiposDemandaRouter.post('/', requirePermissao('tipos_demanda.gerenciar'), async (req: AuthRequest, res) => {
   const { nome, descricao, prazoPadraoDias } = req.body
   if (!nome?.trim()) throw new AppError('Nome do tipo de demanda é obrigatório')
 
@@ -33,7 +33,7 @@ tiposDemandaRouter.post('/', requireMaster, async (req: AuthRequest, res) => {
   res.status(201).json(tipo)
 })
 
-tiposDemandaRouter.put('/:id', requireMaster, async (req: AuthRequest, res) => {
+tiposDemandaRouter.put('/:id', requirePermissao('tipos_demanda.gerenciar'), async (req: AuthRequest, res) => {
   const { nome, descricao, prazoPadraoDias, ativo } = req.body
   const tipo = await prisma.tipoDemanda.update({
     where: { id: req.params.id },
@@ -43,14 +43,14 @@ tiposDemandaRouter.put('/:id', requireMaster, async (req: AuthRequest, res) => {
   res.json(tipo)
 })
 
-tiposDemandaRouter.delete('/:id', requireMaster, async (req: AuthRequest, res) => {
+tiposDemandaRouter.delete('/:id', requirePermissao('tipos_demanda.gerenciar'), async (req: AuthRequest, res) => {
   await prisma.tipoDemanda.delete({ where: { id: req.params.id } })
   res.json({ message: 'Tipo de demanda removido' })
 })
 
 // ===== Etapas do modelo (motor de fluxo configurável) =====
 
-tiposDemandaRouter.post('/:tipoId/etapas', requireMaster, async (req: AuthRequest, res) => {
+tiposDemandaRouter.post('/:tipoId/etapas', requirePermissao('tipos_demanda.gerenciar'), async (req: AuthRequest, res) => {
   const { titulo, instrucoes, equipeId, prazoDias } = req.body
   if (!titulo?.trim()) throw new AppError('Título da etapa é obrigatório')
 
@@ -71,7 +71,7 @@ tiposDemandaRouter.post('/:tipoId/etapas', requireMaster, async (req: AuthReques
   res.status(201).json(etapa)
 })
 
-tiposDemandaRouter.delete('/etapas/:id', requireMaster, async (req: AuthRequest, res) => {
+tiposDemandaRouter.delete('/etapas/:id', requirePermissao('tipos_demanda.gerenciar'), async (req: AuthRequest, res) => {
   await prisma.modeloEtapa.delete({ where: { id: req.params.id } })
   res.json({ message: 'Etapa do modelo removida' })
 })
