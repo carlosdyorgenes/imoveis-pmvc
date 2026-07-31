@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Demanda, StatusDemanda, TipoDemanda } from '@/types'
 import Link from 'next/link'
-import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet } from 'lucide-react'
+import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -94,6 +94,18 @@ export default function DemandasPage() {
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao criar demanda'))
   })
 
+  const { data: painel } = useQuery({
+    queryKey: ['demandas-painel'],
+    queryFn: () => api.get('/api/demandas/painel/resumo').then(r => r.data as {
+      totalDemandas: number
+      totalAtrasadas: number
+      minhasAtividadesPendentes: number
+      aguardandoMinhaAprovacao: number
+      porStatus: Record<string, number>
+    }),
+    refetchInterval: 60_000,
+  })
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -113,6 +125,27 @@ export default function DemandasPage() {
           </button>
         </div>
       </div>
+
+      {painel && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <div className="card py-3">
+            <p className="text-xs text-gray-500 flex items-center gap-1"><FileStack className="w-3.5 h-3.5" /> Total de demandas</p>
+            <p className="text-2xl font-bold text-gray-800 mt-1">{painel.totalDemandas}</p>
+          </div>
+          <button onClick={() => setSomenteAtrasadas(true)} className="card py-3 text-left hover:shadow-md transition-shadow">
+            <p className="text-xs text-red-600 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Atrasadas</p>
+            <p className="text-2xl font-bold text-red-600 mt-1">{painel.totalAtrasadas}</p>
+          </button>
+          <div className="card py-3">
+            <p className="text-xs text-blue-600 flex items-center gap-1"><Inbox className="w-3.5 h-3.5" /> Minhas atividades pendentes</p>
+            <p className="text-2xl font-bold text-blue-600 mt-1">{painel.minhasAtividadesPendentes}</p>
+          </div>
+          <div className="card py-3">
+            <p className="text-xs text-amber-600 flex items-center gap-1"><ClipboardCheck className="w-3.5 h-3.5" /> Aguardando minha aprovação</p>
+            <p className="text-2xl font-bold text-amber-600 mt-1">{painel.aguardandoMinhaAprovacao}</p>
+          </div>
+        </div>
+      )}
 
       <div className="card mb-4 py-3">
         <div className="flex flex-col sm:flex-row gap-2">

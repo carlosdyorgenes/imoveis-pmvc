@@ -112,6 +112,29 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao anexar documento'))
   })
 
+  const uploadDocumento = useMutation({
+    mutationFn: ({ atividadeId, arquivo }: { atividadeId: string; arquivo: File }) => {
+      const fd = new FormData()
+      fd.append('arquivo', arquivo)
+      if (novoDocNome.trim()) fd.append('nome', novoDocNome.trim())
+      return api.post(`/api/demandas/atividades/${atividadeId}/documentos/upload`, fd)
+    },
+    onSuccess: () => { invalidar(); setNovoDocNome(''); toast.success('Arquivo enviado') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao enviar arquivo'))
+  })
+
+  const baixarArquivo = async (docId: string, nome: string) => {
+    try {
+      const res = await api.get(`/api/demandas/documentos/${docId}/arquivo`, { responseType: 'blob' })
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url; a.download = nome; a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Erro ao baixar arquivo')
+    }
+  }
+
   const deleteDocumento = useMutation({
     mutationFn: (docId: string) => api.delete(`/api/demandas/documentos/${docId}`),
     onSuccess: invalidar,
@@ -466,16 +489,32 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   <FileText className="w-3.5 h-3.5" /> Documentos
                 </p>
                 {podeGerenciarChecklist(atividadeModal) && (
-                  <div className="flex gap-2 mb-2">
-                    <input className="input text-sm flex-1" placeholder="Nome (ex: Planta, Memorial...)" value={novoDocNome} onChange={e => setNovoDocNome(e.target.value)} />
-                    <input className="input text-sm flex-1" placeholder="Link do Google Drive" value={novoDocLink} onChange={e => setNovoDocLink(e.target.value)} />
-                    <button
-                      onClick={() => novoDocNome.trim() && novoDocLink.trim() && addDocumento.mutate(atividadeModal.id)}
-                      disabled={!novoDocNome.trim() || !novoDocLink.trim()}
-                      className="btn-primary text-xs"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
+                  <div className="space-y-2 mb-2">
+                    <input className="input text-sm" placeholder="Nome do documento (ex: Planta, Memorial...)" value={novoDocNome} onChange={e => setNovoDocNome(e.target.value)} />
+                    <div className="flex gap-2">
+                      <input className="input text-sm flex-1" placeholder="ou link do Google Drive" value={novoDocLink} onChange={e => setNovoDocLink(e.target.value)} />
+                      <button
+                        onClick={() => novoDocNome.trim() && novoDocLink.trim() && addDocumento.mutate(atividadeModal.id)}
+                        disabled={!novoDocNome.trim() || !novoDocLink.trim()}
+                        className="btn-secondary text-xs whitespace-nowrap"
+                      >
+                        Anexar link
+                      </button>
+                    </div>
+                    <label className="btn-primary text-xs w-full justify-center cursor-pointer">
+                      <Plus className="w-3.5 h-3.5" /> Enviar arquivo (PDF, DOC, XLS, imagem, DWG...)
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.dwg,.zip"
+                        onChange={e => {
+                          const arquivo = e.target.files?.[0]
+                          if (arquivo) uploadDocumento.mutate({ atividadeId: atividadeModal.id, arquivo })
+                          e.target.value = ''
+                        }}
+                      />
+                    </label>
+                    {uploadDocumento.isPending && <p className="text-xs text-gray-400 text-center">Enviando...</p>}
                   </div>
                 )}
                 {atividadeModal.documentos.length === 0 ? (
@@ -484,11 +523,19 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   <div className="space-y-1.5">
                     {atividadeModal.documentos.map(d => (
                       <div key={d.id} className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-gray-50 group">
-                        <a href={d.linkDrive} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0">
-                          <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
-                          <span className="truncate">{d.nome}</span>
-                          <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
-                        </a>
+                        {d.arquivoPath ? (
+                          <button onClick={() => baixarArquivo(d.id, d.nome)} className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0 text-left">
+                            <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="truncate">{d.nome}</span>
+                            <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
+                          </button>
+                        ) : (
+                          <a href={d.linkDrive} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0">
+                            <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="truncate">{d.nome}</span>
+                            <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
+                          </a>
+                        )}
                         {podeGerenciarChecklist(atividadeModal) && (
                           <button onClick={() => deleteDocumento.mutate(d.id)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all">
                             <Trash2 className="w-3.5 h-3.5" />

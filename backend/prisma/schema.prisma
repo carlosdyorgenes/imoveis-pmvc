@@ -196,13 +196,17 @@ model ModeloEtapa {
 }
 
 model DocumentoAtividade {
-  id          String   @id @default(uuid())
-  atividadeId String
-  nome        String
-  linkDrive   String
-  versao      Int      @default(1)
-  createdById String?
-  createdAt   DateTime @default(now())
+  id             String   @id @default(uuid())
+  atividadeId    String
+  nome           String
+  linkDrive      String
+  versao         Int      @default(1)
+  createdById    String?
+  // Preenchido quando o documento é um arquivo enviado (upload real), não um link do Drive.
+  arquivoPath    String?
+  arquivoMime    String?
+  arquivoTamanho Int?
+  createdAt      DateTime @default(now())
 
   atividade Atividade @relation(fields: [atividadeId], references: [id], onDelete: Cascade)
 

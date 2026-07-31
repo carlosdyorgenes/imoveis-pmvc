@@ -1,4 +1,8 @@
 import { Router } from 'express'
+import multer from 'multer'
+import fs from 'fs'
+import path from 'path'
+import crypto from 'crypto'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireMaster, AuthRequest } from '../middleware/auth'
 import { AppError } from '../middleware/errorHandler'
@@ -9,6 +13,30 @@ import { TRANSICOES_DEMANDA, TRANSICOES_ATIVIDADE, transicaoValida, AÇÕES_DO_R
 
 export const demandasRouter = Router()
 demandasRouter.use(authenticate)
+
+// Upload real de documentos de atividade — persistido no volume /app/uploads (montado no Fly.io).
+const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads', 'documentos')
+fs.mkdirSync(UPLOADS_DIR, { recursive: true })
+
+const EXTENSOES_PERMITIDAS = new Set(['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.jpg', '.jpeg', '.png', '.dwg', '.zip'])
+
+const uploadDocumento = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase()
+      cb(null, `${crypto.randomUUID()}${ext}`)
+    },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase()
+    if (!EXTENSOES_PERMITIDAS.has(ext)) {
+      return cb(new Error(`Extensão "${ext}" não permitida`))
+    }
+    cb(null, true)
+  },
+})
 
 const DEMANDA_INCLUDE = {
   solicitante: { select: { id: true, name: true } },
@@ -59,6 +87,41 @@ async function notificarResponsaveis(atividade: { id: string; responsavelId: str
     await notificar(userId, tipo, mensagem, { demandaId: atividade.demandaId, atividadeId: atividade.id })
   }
 }
+
+// ===== Painel de indicadores =====
+
+demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
+  const uid = req.user!.id
+
+  const [porStatus, totalAtrasadas, minhasEquipes] = await Promise.all([
+    prisma.demanda.groupBy({ by: ['status'], _count: true }),
+    prisma.demanda.count({ where: { prazo: { lt: new Date() }, status: { notIn: ['CONCLUIDA', 'CANCELADA'] } } }),
+    prisma.equipeMembro.findMany({ where: { userId: uid }, select: { equipeId: true } }),
+  ])
+
+  const equipeIds = minhasEquipes.map(m => m.equipeId)
+
+  const [minhasAtividadesPendentes, aguardandoMinhaAprovacao] = await Promise.all([
+    prisma.atividade.count({
+      where: {
+        status: { in: ['ATRIBUIDA', 'EM_ANDAMENTO'] },
+        OR: [{ responsavelId: uid }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds } }] : [])],
+      },
+    }),
+    prisma.atividade.count({ where: { status: 'CONCLUIDA', solicitanteId: uid } }),
+  ])
+
+  const statusMap: Record<string, number> = {}
+  for (const g of porStatus) statusMap[g.status] = g._count
+
+  res.json({
+    porStatus: statusMap,
+    totalDemandas: porStatus.reduce((acc, g) => acc + g._count, 0),
+    totalAtrasadas,
+    minhasAtividadesPendentes,
+    aguardandoMinhaAprovacao,
+  })
+})
 
 // ===== Demandas =====
 
@@ -398,11 +461,65 @@ demandasRouter.post('/atividades/:atividadeId/documentos', async (req: AuthReque
   res.status(201).json(documento)
 })
 
+// Upload real de arquivo (persistido no volume, servido em /uploads/documentos/<arquivo>)
+demandasRouter.post('/atividades/:atividadeId/documentos/upload', (req: AuthRequest, res, next) => {
+  uploadDocumento.single('arquivo')(req, res, (err) => {
+    if (err) return next(new AppError(err.message || 'Erro no upload do arquivo'))
+    next()
+  })
+}, async (req: AuthRequest, res) => {
+  const file = (req as AuthRequest & { file?: Express.Multer.File }).file
+  if (!file) throw new AppError('Nenhum arquivo enviado')
+
+  const atividade = await prisma.atividade.findUnique({ where: { id: req.params.atividadeId } })
+  if (!atividade) {
+    fs.unlink(file.path, () => {})
+    throw new AppError('Atividade não encontrada', 404)
+  }
+  await assertPodeGerenciarChecklist(req, atividade)
+
+  const nome = (req.body.nome as string)?.trim() || file.originalname
+  const versaoAnterior = await prisma.documentoAtividade.count({ where: { atividadeId: atividade.id, nome } })
+  const documento = await prisma.documentoAtividade.create({
+    data: {
+      atividadeId: atividade.id,
+      nome,
+      linkDrive: `/uploads/documentos/${file.filename}`,
+      versao: versaoAnterior + 1,
+      createdById: req.user!.id,
+      arquivoPath: file.filename,
+      arquivoMime: file.mimetype,
+      arquivoTamanho: file.size,
+    },
+  })
+
+  await registrarHistorico(atividade.demandaId, req.user!.id, 'DOCUMENTO_ANEXADO', `Arquivo "${documento.nome}" (v${documento.versao}) enviado na atividade "${atividade.titulo}"`)
+  res.status(201).json(documento)
+})
+
+// Download autenticado (qualquer usuário logado, mesmo modelo de visibilidade das demandas).
+// Preferível ao link estático: preserva o nome original no download e não depende de
+// adivinhar a rota — mas como /uploads também é servido estaticamente (ver server.ts),
+// o nome de arquivo aleatório (UUID) é a camada real de proteção contra acesso não autorizado
+// por terceiros, equivalente ao modelo já usado no resto do sistema (link do Google Drive).
+demandasRouter.get('/documentos/:id/arquivo', async (req: AuthRequest, res) => {
+  const doc = await prisma.documentoAtividade.findUnique({ where: { id: req.params.id } })
+  if (!doc || !doc.arquivoPath) throw new AppError('Arquivo não encontrado', 404)
+
+  const filePath = path.join(UPLOADS_DIR, doc.arquivoPath)
+  if (!fs.existsSync(filePath)) throw new AppError('Arquivo não encontrado no armazenamento', 404)
+
+  res.download(filePath, doc.nome + path.extname(doc.arquivoPath))
+})
+
 demandasRouter.delete('/documentos/:id', async (req: AuthRequest, res) => {
   const doc = await prisma.documentoAtividade.findUnique({ where: { id: req.params.id }, include: { atividade: true } })
   if (!doc) throw new AppError('Documento não encontrado', 404)
   await assertPodeGerenciarChecklist(req, doc.atividade)
   await prisma.documentoAtividade.delete({ where: { id: doc.id } })
+  if (doc.arquivoPath) {
+    fs.unlink(path.join(UPLOADS_DIR, doc.arquivoPath), () => {})
+  }
   res.json({ message: 'Documento removido' })
 })
 

@@ -118,6 +118,9 @@ export interface DocumentoAtividade {
   nome: string
   linkDrive: string
   versao: number
+  arquivoPath?: string | null
+  arquivoMime?: string | null
+  arquivoTamanho?: number | null
   createdAt: string
 }
 
