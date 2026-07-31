@@ -308,7 +308,8 @@ export default function DemandasPage() {
                 </select>
                 {tipoDemandaId && (
                   <p className="text-xs text-primary-600 mt-1">
-                    As etapas padrão deste tipo serão criadas automaticamente como atividades.
+                    A 1ª etapa deste tipo será criada automaticamente. As próximas etapas
+                    nascem sozinhas, uma de cada vez, conforme cada atividade for aprovada.
                   </p>
                 )}
               </div>

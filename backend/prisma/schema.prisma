@@ -148,6 +148,9 @@ model Atividade {
   responsavelId   String?
   equipeId        String?
   solicitanteId   String
+  // Preenchida quando a atividade foi gerada automaticamente por um TipoDemanda/ModeloEtapa
+  // (motor de fluxo). Usada para saber qual é a "próxima etapa" a ativar quando esta é aprovada.
+  modeloEtapaId   String?
   status          StatusAtividade @default(ATRIBUIDA)
   prazo           DateTime?
   observacoes     String?

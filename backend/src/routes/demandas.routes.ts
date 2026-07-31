@@ -220,23 +220,25 @@ demandasRouter.post('/', async (req: AuthRequest, res) => {
   await registrarHistorico(demanda.id, req.user!.id, 'CRIACAO', `Demanda criada (GEP ${demanda.gepNumero}/${demanda.gepAno})${tipo ? ` — tipo: ${tipo.nome}` : ''}`)
   await createLog({ userId: req.user!.id, action: 'CREATE', entity: 'DEMANDA', entityId: demanda.id, details: `GEP ${demanda.gepNumero}/${demanda.gepAno}` })
 
-  // Motor de fluxo simplificado: gera as atividades padrão do tipo de demanda, se houver
+  // Motor de fluxo com dependência sequencial real: só a PRIMEIRA etapa do modelo é criada
+  // agora. As etapas seguintes só são geradas automaticamente quando a anterior é aprovada
+  // (ver ativarProximaEtapaDoFluxo, chamada na transição para APROVADA).
   if (tipo && tipo.etapasModelo.length > 0) {
-    for (const etapa of tipo.etapasModelo) {
-      const atividade = await prisma.atividade.create({
-        data: {
-          demandaId: demanda.id,
-          titulo: etapa.titulo,
-          instrucoes: etapa.instrucoes,
-          equipeId: etapa.equipeId,
-          solicitanteId: req.user!.id,
-          prazo: etapa.prazoDias ? new Date(Date.now() + etapa.prazoDias * 86400000) : null,
-        },
-      })
-      await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" criada automaticamente pelo modelo "${tipo.nome}"`)
-      if (etapa.equipeId) {
-        await notificarResponsaveis(atividade, 'ATIVIDADE_ATRIBUIDA', `Nova atividade "${atividade.titulo}" (GEP ${demanda.gepNumero}/${demanda.gepAno})`)
-      }
+    const primeira = tipo.etapasModelo[0]
+    const atividade = await prisma.atividade.create({
+      data: {
+        demandaId: demanda.id,
+        titulo: primeira.titulo,
+        instrucoes: primeira.instrucoes,
+        equipeId: primeira.equipeId,
+        modeloEtapaId: primeira.id,
+        solicitanteId: req.user!.id,
+        prazo: primeira.prazoDias ? new Date(Date.now() + primeira.prazoDias * 86400000) : null,
+      },
+    })
+    await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" (1ª etapa do modelo "${tipo.nome}") criada automaticamente`)
+    if (primeira.equipeId) {
+      await notificarResponsaveis(atividade, 'ATIVIDADE_ATRIBUIDA', `Nova atividade "${atividade.titulo}" (GEP ${demanda.gepNumero}/${demanda.gepAno})`)
     }
     await prisma.demanda.update({ where: { id: demanda.id }, data: { status: 'EM_ANDAMENTO' } })
   }
@@ -428,10 +430,60 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
   }
   if (status === 'APROVADA') {
     await notificarResponsaveis(atividade, 'ATIVIDADE_APROVADA', `Sua atividade "${atividade.titulo}" foi aprovada (GEP ${gep})`)
+    await ativarProximaEtapaDoFluxo(atividade.demandaId, atividade.id, req.user!.id)
   }
 
   res.json(atualizada)
 })
+
+// Motor de fluxo: quando uma atividade gerada por um ModeloEtapa é aprovada, cria
+// automaticamente a atividade da próxima etapa do mesmo TipoDemanda (dependência sequencial
+// real — a etapa 2 só existe depois que a etapa 1 foi de fato aprovada, não antes).
+// Se não houver próxima etapa, conclui a demanda automaticamente.
+async function ativarProximaEtapaDoFluxo(demandaId: string, atividadeAprovadaId: string, userId: string) {
+  const atividadeAprovada = await prisma.atividade.findUnique({ where: { id: atividadeAprovadaId } })
+  if (!atividadeAprovada?.modeloEtapaId) return // atividade manual, fora do motor de fluxo
+
+  const etapaAtual = await prisma.modeloEtapa.findUnique({ where: { id: atividadeAprovada.modeloEtapaId } })
+  if (!etapaAtual) return
+
+  const demanda = await prisma.demanda.findUnique({ where: { id: demandaId } })
+  if (!demanda) return
+
+  const proxima = await prisma.modeloEtapa.findFirst({
+    where: { tipoDemandaId: etapaAtual.tipoDemandaId, ordem: { gt: etapaAtual.ordem } },
+    orderBy: { ordem: 'asc' },
+  })
+
+  if (!proxima) {
+    // Última etapa do modelo aprovada: conclui a demanda automaticamente
+    if (!['CONCLUIDA', 'CANCELADA'].includes(demanda.status)) {
+      await prisma.demanda.update({ where: { id: demandaId }, data: { status: 'CONCLUIDA' } })
+      await registrarHistorico(demandaId, userId, 'STATUS', 'Última etapa do fluxo aprovada — demanda concluída automaticamente')
+    }
+    return
+  }
+
+  const jaExiste = await prisma.atividade.findFirst({ where: { demandaId, modeloEtapaId: proxima.id } })
+  if (jaExiste) return // idempotência: nunca cria a mesma etapa duas vezes
+
+  const novaAtividade = await prisma.atividade.create({
+    data: {
+      demandaId,
+      titulo: proxima.titulo,
+      instrucoes: proxima.instrucoes,
+      equipeId: proxima.equipeId,
+      modeloEtapaId: proxima.id,
+      solicitanteId: userId,
+      prazo: proxima.prazoDias ? new Date(Date.now() + proxima.prazoDias * 86400000) : null,
+    },
+  })
+
+  await registrarHistorico(demandaId, userId, 'ATIVIDADE_CRIADA', `Atividade "${novaAtividade.titulo}" (próxima etapa do fluxo) criada automaticamente`)
+  if (proxima.equipeId) {
+    await notificarResponsaveis(novaAtividade, 'ATIVIDADE_ATRIBUIDA', `Nova atividade "${novaAtividade.titulo}" (GEP ${demanda.gepNumero}/${demanda.gepAno})`)
+  }
+}
 
 demandasRouter.delete('/atividades/:id', async (req: AuthRequest, res) => {
   const atividade = await prisma.atividade.findUnique({ where: { id: req.params.id } })
