@@ -1,27 +1,59 @@
 import { Router } from 'express'
 import { prisma } from '../lib/prisma'
-import { authenticate, AuthRequest } from '../middleware/auth'
+import { authenticate, requireMaster, AuthRequest } from '../middleware/auth'
 import { AppError } from '../middleware/errorHandler'
 import { createLog } from '../utils/logger'
+import { notificar } from '../utils/notificar'
+import { previewImportacao } from '../data/previewImportacao'
+import { TRANSICOES_DEMANDA, TRANSICOES_ATIVIDADE, transicaoValida, AÇÕES_DO_RESPONSAVEL, AÇÕES_DO_SOLICITANTE } from '../domain/estados'
 
 export const demandasRouter = Router()
 demandasRouter.use(authenticate)
 
 const DEMANDA_INCLUDE = {
   solicitante: { select: { id: true, name: true } },
+  tipoDemanda: { select: { id: true, nome: true } },
   atividades: {
     include: {
       responsavel: { select: { id: true, name: true } },
+      equipe: { select: { id: true, nome: true } },
       solicitante: { select: { id: true, name: true } },
       passos: { orderBy: { ordem: 'asc' as const } },
+      documentos: { orderBy: { createdAt: 'desc' as const } },
     },
     orderBy: { createdAt: 'asc' as const },
   },
   historico: { orderBy: { createdAt: 'desc' as const } },
+  pendenciasExternas: { orderBy: { createdAt: 'desc' as const } },
 }
 
 async function registrarHistorico(demandaId: string, userId: string, acao: string, descricao: string) {
   await prisma.historicoDemanda.create({ data: { demandaId, userId, acao, descricao } })
+}
+
+// Verifica se o usuário é responsável direto ou membro da equipe atribuída à atividade
+async function isResponsavelDaAtividade(userId: string, atividade: { responsavelId: string | null; equipeId: string | null }) {
+  if (atividade.responsavelId === userId) return true
+  if (atividade.equipeId) {
+    const membro = await prisma.equipeMembro.findUnique({
+      where: { equipeId_userId: { equipeId: atividade.equipeId, userId } },
+    })
+    return !!membro
+  }
+  return false
+}
+
+// Notifica o(s) responsável(is) de uma atividade (usuário direto ou todos os membros da equipe)
+async function notificarResponsaveis(atividade: { id: string; responsavelId: string | null; equipeId: string | null; demandaId: string; titulo: string }, tipo: string, mensagem: string) {
+  const userIds: string[] = []
+  if (atividade.responsavelId) userIds.push(atividade.responsavelId)
+  if (atividade.equipeId) {
+    const membros = await prisma.equipeMembro.findMany({ where: { equipeId: atividade.equipeId } })
+    userIds.push(...membros.map(m => m.userId))
+  }
+  for (const userId of [...new Set(userIds)]) {
+    await notificar(userId, tipo, mensagem, { demandaId: atividade.demandaId, atividadeId: atividade.id })
+  }
 }
 
 // ===== Demandas =====
@@ -36,6 +68,7 @@ demandasRouter.get('/', async (req, res) => {
     where,
     include: {
       solicitante: { select: { id: true, name: true } },
+      tipoDemanda: { select: { id: true, nome: true } },
       atividades: { select: { id: true, status: true } },
     },
     orderBy: { createdAt: 'desc' },
@@ -53,11 +86,22 @@ demandasRouter.get('/:id', async (req, res) => {
 })
 
 demandasRouter.post('/', async (req: AuthRequest, res) => {
-  const { gepNumero, gepAno, assunto, descricao, interessado, prazo } = req.body
+  const { gepNumero, gepAno, assunto, descricao, interessado, prazo, tipoDemandaId } = req.body
   if (!gepNumero?.trim() || !gepAno?.trim()) throw new AppError('Número e ano do GEP são obrigatórios')
   if (!assunto?.trim()) throw new AppError('Assunto é obrigatório')
 
   const existente = await prisma.demanda.findFirst({ where: { gepNumero: gepNumero.trim(), gepAno: gepAno.trim() } })
+
+  let prazoFinal = prazo ? new Date(prazo) : null
+  let tipo = null as { id: string; nome: string; prazoPadraoDias: number | null; etapasModelo: { id: string; titulo: string; instrucoes: string | null; ordem: number; equipeId: string | null; prazoDias: number | null }[] } | null
+
+  if (tipoDemandaId) {
+    tipo = await prisma.tipoDemanda.findUnique({ where: { id: tipoDemandaId }, include: { etapasModelo: { orderBy: { ordem: 'asc' } } } })
+    if (!tipo) throw new AppError('Tipo de demanda inválido')
+    if (!prazoFinal && tipo.prazoPadraoDias) {
+      prazoFinal = new Date(Date.now() + tipo.prazoPadraoDias * 86400000)
+    }
+  }
 
   const demanda = await prisma.demanda.create({
     data: {
@@ -66,13 +110,35 @@ demandasRouter.post('/', async (req: AuthRequest, res) => {
       assunto: assunto.trim(),
       descricao,
       interessado,
-      prazo: prazo ? new Date(prazo) : null,
+      prazo: prazoFinal,
       solicitanteId: req.user!.id,
+      tipoDemandaId: tipo?.id,
     },
   })
 
-  await registrarHistorico(demanda.id, req.user!.id, 'CRIACAO', `Demanda criada (GEP ${demanda.gepNumero}/${demanda.gepAno})`)
+  await registrarHistorico(demanda.id, req.user!.id, 'CRIACAO', `Demanda criada (GEP ${demanda.gepNumero}/${demanda.gepAno})${tipo ? ` — tipo: ${tipo.nome}` : ''}`)
   await createLog({ userId: req.user!.id, action: 'CREATE', entity: 'DEMANDA', entityId: demanda.id, details: `GEP ${demanda.gepNumero}/${demanda.gepAno}` })
+
+  // Motor de fluxo simplificado: gera as atividades padrão do tipo de demanda, se houver
+  if (tipo && tipo.etapasModelo.length > 0) {
+    for (const etapa of tipo.etapasModelo) {
+      const atividade = await prisma.atividade.create({
+        data: {
+          demandaId: demanda.id,
+          titulo: etapa.titulo,
+          instrucoes: etapa.instrucoes,
+          equipeId: etapa.equipeId,
+          solicitanteId: req.user!.id,
+          prazo: etapa.prazoDias ? new Date(Date.now() + etapa.prazoDias * 86400000) : null,
+        },
+      })
+      await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" criada automaticamente pelo modelo "${tipo.nome}"`)
+      if (etapa.equipeId) {
+        await notificarResponsaveis(atividade, 'ATIVIDADE_ATRIBUIDA', `Nova atividade "${atividade.titulo}" (GEP ${demanda.gepNumero}/${demanda.gepAno})`)
+      }
+    }
+    await prisma.demanda.update({ where: { id: demanda.id }, data: { status: 'EM_ANDAMENTO' } })
+  }
 
   res.status(201).json({
     ...demanda,
@@ -96,23 +162,12 @@ demandasRouter.put('/:id', async (req: AuthRequest, res) => {
   res.json(demanda)
 })
 
-// Transições válidas de status da demanda (não permite alteração livre)
-const TRANSICOES_DEMANDA: Record<string, string[]> = {
-  ABERTA: ['EM_ANDAMENTO', 'CANCELADA'],
-  EM_ANDAMENTO: ['AGUARDANDO_TERCEIRO', 'DEVOLVIDA', 'CONCLUIDA', 'CANCELADA'],
-  AGUARDANDO_TERCEIRO: ['EM_ANDAMENTO', 'CANCELADA'],
-  DEVOLVIDA: ['EM_ANDAMENTO', 'CANCELADA'],
-  CONCLUIDA: [],
-  CANCELADA: [],
-}
-
 demandasRouter.put('/:id/status', async (req: AuthRequest, res) => {
   const { status, motivo } = req.body
   const demanda = await prisma.demanda.findUnique({ where: { id: req.params.id } })
   if (!demanda) throw new AppError('Demanda não encontrada', 404)
 
-  const permitido = TRANSICOES_DEMANDA[demanda.status] || []
-  if (!permitido.includes(status)) {
+  if (!transicaoValida(TRANSICOES_DEMANDA, demanda.status, status)) {
     throw new AppError(`Transição inválida: "${demanda.status}" não pode ir para "${status}"`)
   }
 
@@ -128,9 +183,9 @@ demandasRouter.put('/:id/status', async (req: AuthRequest, res) => {
 // ===== Atividades =====
 
 demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
-  const { titulo, instrucoes, responsavelId, prazo } = req.body
+  const { titulo, instrucoes, responsavelId, equipeId, prazo } = req.body
   if (!titulo?.trim()) throw new AppError('Título da atividade é obrigatório')
-  if (!responsavelId) throw new AppError('Responsável é obrigatório')
+  if (!responsavelId && !equipeId) throw new AppError('Informe um responsável ou uma equipe')
 
   const demanda = await prisma.demanda.findUnique({ where: { id: req.params.demandaId } })
   if (!demanda) throw new AppError('Demanda não encontrada', 404)
@@ -139,61 +194,58 @@ demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
     throw new AppError('Somente quem criou a demanda (ou o Master) pode atribuir atividades', 403)
   }
 
-  const responsavel = await prisma.user.findUnique({ where: { id: responsavelId } })
-  if (!responsavel || !responsavel.active) throw new AppError('Responsável inválido')
+  let responsavelNome = ''
+  if (responsavelId) {
+    const responsavel = await prisma.user.findUnique({ where: { id: responsavelId } })
+    if (!responsavel || !responsavel.active) throw new AppError('Responsável inválido')
+    responsavelNome = responsavel.name
+  }
+  if (equipeId) {
+    const equipe = await prisma.equipe.findUnique({ where: { id: equipeId } })
+    if (!equipe || !equipe.ativo) throw new AppError('Equipe inválida')
+    responsavelNome = equipe.nome
+  }
 
   const atividade = await prisma.atividade.create({
     data: {
       demandaId: demanda.id,
       titulo: titulo.trim(),
       instrucoes,
-      responsavelId,
+      responsavelId: responsavelId || null,
+      equipeId: equipeId || null,
       solicitanteId: req.user!.id,
       prazo: prazo ? new Date(prazo) : null,
     },
-    include: { responsavel: { select: { id: true, name: true } }, passos: true },
+    include: { responsavel: { select: { id: true, name: true } }, equipe: { select: { id: true, nome: true } }, passos: true, documentos: true },
   })
 
   if (demanda.status === 'ABERTA') {
     await prisma.demanda.update({ where: { id: demanda.id }, data: { status: 'EM_ANDAMENTO' } })
   }
 
-  await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" atribuída a ${responsavel.name}`)
+  await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" atribuída a ${responsavelNome}`)
+  await notificarResponsaveis(atividade, 'ATIVIDADE_ATRIBUIDA', `Nova atividade "${atividade.titulo}" (GEP ${demanda.gepNumero}/${demanda.gepAno})`)
   res.status(201).json(atividade)
 })
-
-// Transições válidas de status da atividade
-const TRANSICOES_ATIVIDADE: Record<string, string[]> = {
-  ATRIBUIDA: ['EM_ANDAMENTO', 'CANCELADA'],
-  EM_ANDAMENTO: ['CONCLUIDA', 'CANCELADA'],
-  CONCLUIDA: ['APROVADA', 'DEVOLVIDA'],
-  DEVOLVIDA: ['EM_ANDAMENTO', 'CANCELADA'],
-  APROVADA: [],
-  CANCELADA: [],
-}
 
 demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
   const { status, motivo, observacoes, linkDocumento } = req.body
   const atividade = await prisma.atividade.findUnique({
     where: { id: req.params.id },
-    include: { demanda: { select: { id: true, assunto: true } } },
+    include: { demanda: { select: { id: true, assunto: true, gepNumero: true, gepAno: true } } },
   })
   if (!atividade) throw new AppError('Atividade não encontrada', 404)
 
-  const permitido = TRANSICOES_ATIVIDADE[atividade.status] || []
-  if (!permitido.includes(status)) {
+  if (!transicaoValida(TRANSICOES_ATIVIDADE, atividade.status, status)) {
     throw new AppError(`Transição inválida: "${atividade.status}" não pode ir para "${status}"`)
   }
 
-  // Autorização: apenas o responsável inicia/conclui; apenas o solicitante aprova/devolve/reabre.
-  // MASTER sempre pode agir (override administrativo).
+  // Autorização: apenas o responsável (usuário ou membro da equipe) inicia/conclui;
+  // apenas o solicitante aprova/devolve. MASTER sempre pode agir (override administrativo).
   const uid = req.user!.id
-  const isResponsavel = atividade.responsavelId === uid
+  const isResponsavel = await isResponsavelDaAtividade(uid, atividade)
   const isSolicitante = atividade.solicitanteId === uid
   const isMaster = req.user!.role === 'MASTER'
-
-  const AÇÕES_DO_RESPONSAVEL = ['EM_ANDAMENTO', 'CONCLUIDA']
-  const AÇÕES_DO_SOLICITANTE = ['APROVADA', 'DEVOLVIDA']
 
   if (!isMaster) {
     if (AÇÕES_DO_RESPONSAVEL.includes(status) && !isResponsavel) {
@@ -202,7 +254,6 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
     if (AÇÕES_DO_SOLICITANTE.includes(status) && !isSolicitante) {
       throw new AppError('Somente o solicitante da atividade pode executar esta ação', 403)
     }
-    // Cancelar: responsável ou solicitante podem
     if (status === 'CANCELADA' && !isResponsavel && !isSolicitante) {
       throw new AppError('Somente o responsável ou o solicitante podem cancelar esta atividade', 403)
     }
@@ -229,9 +280,10 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
       ...(linkDocumento !== undefined ? { linkDocumento } : {}),
       ...(status === 'DEVOLVIDA' ? { motivoDevolucao: motivo } : {}),
     },
-    include: { responsavel: { select: { id: true, name: true } }, passos: { orderBy: { ordem: 'asc' } } },
+    include: { responsavel: { select: { id: true, name: true } }, equipe: { select: { id: true, nome: true } }, passos: { orderBy: { ordem: 'asc' } }, documentos: true },
   })
 
+  const gep = `${atividade.demanda.gepNumero}/${atividade.demanda.gepAno}`
   const acaoDesc: Record<string, string> = {
     EM_ANDAMENTO: `Atividade "${atividade.titulo}" iniciada`,
     CONCLUIDA: `Atividade "${atividade.titulo}" concluída e devolvida ao solicitante${motivo ? ` (obs: ${motivo})` : ''}`,
@@ -241,6 +293,18 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
   }
 
   await registrarHistorico(atividade.demandaId, req.user!.id, 'ATIVIDADE_STATUS', acaoDesc[status] || `Atividade "${atividade.titulo}" -> ${status}`)
+
+  // Notificações por evento
+  if (status === 'CONCLUIDA') {
+    await notificar(atividade.solicitanteId, 'ATIVIDADE_CONCLUIDA', `Atividade "${atividade.titulo}" foi concluída e aguarda sua análise (GEP ${gep})`, { demandaId: atividade.demandaId, atividadeId: atividade.id })
+  }
+  if (status === 'DEVOLVIDA') {
+    await notificarResponsaveis(atividade, 'ATIVIDADE_DEVOLVIDA', `Atividade "${atividade.titulo}" foi devolvida para correção (GEP ${gep}): ${motivo}`)
+  }
+  if (status === 'APROVADA') {
+    await notificarResponsaveis(atividade, 'ATIVIDADE_APROVADA', `Sua atividade "${atividade.titulo}" foi aprovada (GEP ${gep})`)
+  }
+
   res.json(atualizada)
 })
 
@@ -257,10 +321,10 @@ demandasRouter.delete('/atividades/:id', async (req: AuthRequest, res) => {
 
 // ===== Checklist (passos da atividade) =====
 
-// Apenas responsável, solicitante da atividade ou Master podem gerenciar o checklist
-function assertPodeGerenciarChecklist(req: AuthRequest, atividade: { responsavelId: string; solicitanteId: string }) {
+async function assertPodeGerenciarChecklist(req: AuthRequest, atividade: { responsavelId: string | null; equipeId: string | null; solicitanteId: string }) {
   if (req.user!.role === 'MASTER') return
-  if (atividade.responsavelId !== req.user!.id && atividade.solicitanteId !== req.user!.id) {
+  const isResponsavel = await isResponsavelDaAtividade(req.user!.id, atividade)
+  if (!isResponsavel && atividade.solicitanteId !== req.user!.id) {
     throw new AppError('Somente o responsável ou o solicitante da atividade podem gerenciar o checklist', 403)
   }
 }
@@ -271,7 +335,7 @@ demandasRouter.post('/atividades/:atividadeId/passos', async (req: AuthRequest, 
 
   const atividade = await prisma.atividade.findUnique({ where: { id: req.params.atividadeId } })
   if (!atividade) throw new AppError('Atividade não encontrada', 404)
-  assertPodeGerenciarChecklist(req, atividade)
+  await assertPodeGerenciarChecklist(req, atividade)
 
   const count = await prisma.passoAtividade.count({ where: { atividadeId: atividade.id } })
   const passo = await prisma.passoAtividade.create({
@@ -283,7 +347,7 @@ demandasRouter.post('/atividades/:atividadeId/passos', async (req: AuthRequest, 
 demandasRouter.put('/passos/:id', async (req: AuthRequest, res) => {
   const existente = await prisma.passoAtividade.findUnique({ where: { id: req.params.id }, include: { atividade: true } })
   if (!existente) throw new AppError('Passo não encontrado', 404)
-  assertPodeGerenciarChecklist(req, existente.atividade)
+  await assertPodeGerenciarChecklist(req, existente.atividade)
 
   const { concluido } = req.body
   const passo = await prisma.passoAtividade.update({
@@ -296,8 +360,140 @@ demandasRouter.put('/passos/:id', async (req: AuthRequest, res) => {
 demandasRouter.delete('/passos/:id', async (req: AuthRequest, res) => {
   const existente = await prisma.passoAtividade.findUnique({ where: { id: req.params.id }, include: { atividade: true } })
   if (!existente) throw new AppError('Passo não encontrado', 404)
-  assertPodeGerenciarChecklist(req, existente.atividade)
+  await assertPodeGerenciarChecklist(req, existente.atividade)
 
   await prisma.passoAtividade.delete({ where: { id: req.params.id } })
   res.json({ message: 'Passo removido' })
+})
+
+// ===== Documentos da atividade (versionamento simplificado por link) =====
+
+demandasRouter.post('/atividades/:atividadeId/documentos', async (req: AuthRequest, res) => {
+  const { nome, linkDrive } = req.body
+  if (!nome?.trim() || !linkDrive?.trim()) throw new AppError('Nome e link do documento são obrigatórios')
+
+  const atividade = await prisma.atividade.findUnique({ where: { id: req.params.atividadeId } })
+  if (!atividade) throw new AppError('Atividade não encontrada', 404)
+  await assertPodeGerenciarChecklist(req, atividade)
+
+  // Versão = quantas vezes já foi anexado documento com o mesmo nome nesta atividade + 1
+  const versaoAnterior = await prisma.documentoAtividade.count({ where: { atividadeId: atividade.id, nome: nome.trim() } })
+  const documento = await prisma.documentoAtividade.create({
+    data: { atividadeId: atividade.id, nome: nome.trim(), linkDrive: linkDrive.trim(), versao: versaoAnterior + 1, createdById: req.user!.id },
+  })
+
+  await registrarHistorico(atividade.demandaId, req.user!.id, 'DOCUMENTO_ANEXADO', `Documento "${documento.nome}" (v${documento.versao}) anexado à atividade "${atividade.titulo}"`)
+  res.status(201).json(documento)
+})
+
+demandasRouter.delete('/documentos/:id', async (req: AuthRequest, res) => {
+  const doc = await prisma.documentoAtividade.findUnique({ where: { id: req.params.id }, include: { atividade: true } })
+  if (!doc) throw new AppError('Documento não encontrado', 404)
+  await assertPodeGerenciarChecklist(req, doc.atividade)
+  await prisma.documentoAtividade.delete({ where: { id: doc.id } })
+  res.json({ message: 'Documento removido' })
+})
+
+// ===== Pendências externas =====
+
+demandasRouter.post('/:demandaId/pendencias', async (req: AuthRequest, res) => {
+  const { orgao, descricao, protocolo, prazoEsperado } = req.body
+  if (!orgao?.trim() || !descricao?.trim()) throw new AppError('Órgão e descrição são obrigatórios')
+
+  const demanda = await prisma.demanda.findUnique({ where: { id: req.params.demandaId } })
+  if (!demanda) throw new AppError('Demanda não encontrada', 404)
+
+  const pendencia = await prisma.pendenciaExterna.create({
+    data: {
+      demandaId: demanda.id,
+      orgao: orgao.trim(),
+      descricao: descricao.trim(),
+      protocolo,
+      prazoEsperado: prazoEsperado ? new Date(prazoEsperado) : null,
+    },
+  })
+
+  if (demanda.status === 'EM_ANDAMENTO') {
+    await prisma.demanda.update({ where: { id: demanda.id }, data: { status: 'AGUARDANDO_TERCEIRO' } })
+  }
+
+  await registrarHistorico(demanda.id, req.user!.id, 'PENDENCIA_EXTERNA', `Pendência externa registrada: aguardando ${orgao} — ${descricao}`)
+  res.status(201).json(pendencia)
+})
+
+demandasRouter.put('/pendencias/:id', async (req: AuthRequest, res) => {
+  const { status, resposta } = req.body
+  const pendencia = await prisma.pendenciaExterna.findUnique({ where: { id: req.params.id } })
+  if (!pendencia) throw new AppError('Pendência não encontrada', 404)
+
+  const atualizada = await prisma.pendenciaExterna.update({
+    where: { id: pendencia.id },
+    data: {
+      ...(status ? { status } : {}),
+      ...(resposta !== undefined ? { resposta } : {}),
+      ...(status === 'COBRADA' ? { ultimaCobranca: new Date() } : {}),
+    },
+  })
+
+  await registrarHistorico(pendencia.demandaId, req.user!.id, 'PENDENCIA_EXTERNA', `Pendência de ${pendencia.orgao}: status -> ${status || pendencia.status}`)
+  res.json(atualizada)
+})
+
+demandasRouter.delete('/pendencias/:id', async (req: AuthRequest, res) => {
+  await prisma.pendenciaExterna.delete({ where: { id: req.params.id } })
+  res.json({ message: 'Pendência removida' })
+})
+
+// ===== Importador assistido do DOCX de pendências antigas =====
+// Não importa automaticamente: apresenta prévia extraída do documento de referência
+// para revisão e correção manual antes de qualquer gravação em produção.
+
+demandasRouter.get('/importar/preview', requireMaster, async (req, res) => {
+  res.json(previewImportacao)
+})
+
+interface ItemImportacao {
+  gepNumero?: string | null
+  gepAno?: string | null
+  referenciaComplementar?: string
+  assunto: string
+  interessado?: string
+  descricao?: string
+  checklistSugerido?: { item: string; status: string }[]
+}
+
+// Recebe os itens já revisados/corrigidos pelo administrador e cria as demandas de fato.
+// Itens sem GEP válido são rejeitados (GEP é obrigatório para novas demandas, conforme regra do sistema).
+demandasRouter.post('/importar/confirmar', requireMaster, async (req: AuthRequest, res) => {
+  const { itens } = req.body as { itens: ItemImportacao[] }
+  if (!Array.isArray(itens) || itens.length === 0) throw new AppError('Nenhum item informado para importação')
+
+  const criadas: string[] = []
+  const rejeitados: { item: string; motivo: string }[] = []
+
+  for (const item of itens) {
+    if (!item.gepNumero?.trim() || !item.gepAno?.trim()) {
+      rejeitados.push({ item: item.assunto, motivo: 'GEP incompleto — corrija o número/ano antes de importar' })
+      continue
+    }
+    if (!item.assunto?.trim()) {
+      rejeitados.push({ item: item.assunto || '(sem assunto)', motivo: 'Assunto ausente' })
+      continue
+    }
+
+    const demanda = await prisma.demanda.create({
+      data: {
+        gepNumero: item.gepNumero.trim(),
+        gepAno: item.gepAno.trim(),
+        assunto: item.assunto.trim(),
+        descricao: item.descricao,
+        interessado: item.interessado,
+        solicitanteId: req.user!.id,
+      },
+    })
+    await registrarHistorico(demanda.id, req.user!.id, 'IMPORTACAO', 'Demanda criada via importação assistida do documento de referência')
+    criadas.push(demanda.id)
+  }
+
+  res.json({ criadas: criadas.length, rejeitados })
 })

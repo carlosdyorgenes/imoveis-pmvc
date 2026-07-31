@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { Demanda, StatusDemanda } from '@/types'
+import { Demanda, StatusDemanda, TipoDemanda } from '@/types'
 import Link from 'next/link'
 import { Plus, Search, X, FileStack } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -38,20 +38,26 @@ export default function DemandasPage() {
   const [assunto, setAssunto] = useState('')
   const [interessado, setInteressado] = useState('')
   const [descricao, setDescricao] = useState('')
+  const [tipoDemandaId, setTipoDemandaId] = useState('')
 
   const { data: demandas = [], isLoading } = useQuery<Demanda[]>({
     queryKey: ['demandas', gepBusca],
     queryFn: () => api.get('/api/demandas', { params: gepBusca ? { gep: gepBusca } : {} }).then(r => r.data),
   })
 
+  const { data: tiposDemanda = [] } = useQuery<TipoDemanda[]>({
+    queryKey: ['tipos-demanda'],
+    queryFn: () => api.get('/api/tipos-demanda').then(r => r.data),
+  })
+
   const createMutation = useMutation({
-    mutationFn: () => api.post('/api/demandas', { gepNumero, gepAno, assunto, interessado, descricao }),
+    mutationFn: () => api.post('/api/demandas', { gepNumero, gepAno, assunto, interessado, descricao, tipoDemandaId: tipoDemandaId || undefined }),
     onSuccess: (res) => {
       toast.success('Demanda criada')
       if (res.data.avisoGepDuplicado) toast(res.data.avisoGepDuplicado, { icon: '⚠️' })
       qc.invalidateQueries({ queryKey: ['demandas'] })
       setShowModal(false)
-      setGepNumero(''); setAssunto(''); setInteressado(''); setDescricao('')
+      setGepNumero(''); setAssunto(''); setInteressado(''); setDescricao(''); setTipoDemandaId('')
     },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao criar demanda'))
   })
@@ -157,6 +163,18 @@ export default function DemandasPage() {
               <div>
                 <label className="label">Assunto *</label>
                 <input className="input" placeholder="Ex: Revalidação de alvará" value={assunto} onChange={e => setAssunto(e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Tipo de demanda (opcional)</label>
+                <select className="input" value={tipoDemandaId} onChange={e => setTipoDemandaId(e.target.value)}>
+                  <option value="">Nenhum — atribuir atividades manualmente</option>
+                  {tiposDemanda.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                </select>
+                {tipoDemandaId && (
+                  <p className="text-xs text-primary-600 mt-1">
+                    As etapas padrão deste tipo serão criadas automaticamente como atividades.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="label">Interessado / Loteamento</label>

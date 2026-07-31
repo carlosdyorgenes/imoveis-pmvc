@@ -112,6 +112,15 @@ export interface PassoAtividade {
   createdAt: string
 }
 
+export interface DocumentoAtividade {
+  id: string
+  atividadeId: string
+  nome: string
+  linkDrive: string
+  versao: number
+  createdAt: string
+}
+
 export interface Atividade {
   id: string
   demandaId: string
@@ -123,9 +132,72 @@ export interface Atividade {
   motivoDevolucao?: string
   linkDocumento?: string
   createdAt: string
-  responsavel: { id: string; name: string }
+  responsavel: { id: string; name: string } | null
+  equipe: { id: string; nome: string } | null
   solicitante: { id: string; name: string }
   passos: PassoAtividade[]
+  documentos: DocumentoAtividade[]
+}
+
+export interface EquipeMembro {
+  id: string
+  equipeId: string
+  userId: string
+  principal: boolean
+  user: { id: string; name: string; email: string; active: boolean }
+}
+
+export interface Equipe {
+  id: string
+  nome: string
+  descricao?: string
+  ativo: boolean
+  createdAt: string
+  membros: EquipeMembro[]
+}
+
+export interface ModeloEtapa {
+  id: string
+  tipoDemandaId: string
+  titulo: string
+  instrucoes?: string
+  ordem: number
+  equipeId?: string
+  prazoDias?: number
+}
+
+export interface TipoDemanda {
+  id: string
+  nome: string
+  descricao?: string
+  prazoPadraoDias?: number
+  ativo: boolean
+  etapasModelo: ModeloEtapa[]
+}
+
+export interface PendenciaExterna {
+  id: string
+  demandaId: string
+  orgao: string
+  descricao: string
+  dataSolicitacao: string
+  protocolo?: string
+  prazoEsperado?: string
+  status: string
+  resposta?: string
+  ultimaCobranca?: string
+  createdAt: string
+}
+
+export interface Notificacao {
+  id: string
+  userId: string
+  tipo: string
+  mensagem: string
+  demandaId?: string
+  atividadeId?: string
+  lida: boolean
+  createdAt: string
 }
 
 export interface HistoricoDemanda {
@@ -148,8 +220,10 @@ export interface Demanda {
   prazo?: string
   createdAt: string
   solicitante: { id: string; name: string }
+  tipoDemanda?: { id: string; nome: string } | null
   atividades: Atividade[]
   historico?: HistoricoDemanda[]
+  pendenciasExternas?: PendenciaExterna[]
 }
 
 export interface Log {

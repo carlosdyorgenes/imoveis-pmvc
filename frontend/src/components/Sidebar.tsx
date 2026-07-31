@@ -7,10 +7,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import {
   Building2, LayoutDashboard, MapPin, ClipboardList,
-  KanbanSquare, BarChart3, Users, ScrollText, LogOut, Menu, X, Bell, FileStack
+  KanbanSquare, BarChart3, Users, ScrollText, LogOut, Menu, X, Bell, FileStack, UsersRound, Workflow
 } from 'lucide-react'
 import { useState } from 'react'
 import toast from 'react-hot-toast'
+import { format } from 'date-fns'
+import { ptBR } from 'date-fns/locale'
+import { Notificacao } from '@/types'
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -20,6 +23,8 @@ const navItems = [
   { href: '/demandas', label: 'Demandas', icon: FileStack },
   { href: '/mapa', label: 'Mapa', icon: MapPin },
   { href: '/relatorios', label: 'Relatórios', icon: BarChart3 },
+  { href: '/equipes', label: 'Equipes', icon: UsersRound, masterOnly: true },
+  { href: '/tipos-demanda', label: 'Tipos de Demanda', icon: Workflow, masterOnly: true },
   { href: '/usuarios', label: 'Usuários', icon: Users, masterOnly: true },
   { href: '/logs', label: 'Logs', icon: ScrollText, masterOnly: true },
 ]
@@ -41,6 +46,35 @@ export function Sidebar() {
   const [showRequests, setShowRequests] = useState(false)
   const [resolvingId, setResolvingId] = useState<string | null>(null)
   const [novaSenha, setNovaSenha] = useState('')
+  const [showNotificacoes, setShowNotificacoes] = useState(false)
+
+  const { data: notifCount } = useQuery({
+    queryKey: ['notificacoes-count'],
+    queryFn: () => api.get('/api/notificacoes/count').then(r => r.data.count as number),
+    refetchInterval: 30_000,
+  })
+
+  const { data: notificacoes = [] } = useQuery<Notificacao[]>({
+    queryKey: ['notificacoes'],
+    queryFn: () => api.get('/api/notificacoes').then(r => r.data),
+    enabled: showNotificacoes,
+  })
+
+  const marcarLida = useMutation({
+    mutationFn: (id: string) => api.put(`/api/notificacoes/${id}/lida`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notificacoes'] })
+      qc.invalidateQueries({ queryKey: ['notificacoes-count'] })
+    },
+  })
+
+  const marcarTodasLidas = useMutation({
+    mutationFn: () => api.put('/api/notificacoes/marcar-todas-lidas'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['notificacoes'] })
+      qc.invalidateQueries({ queryKey: ['notificacoes-count'] })
+    },
+  })
 
   const { data: requestCount } = useQuery({
     queryKey: ['password-requests-count'],
@@ -135,6 +169,25 @@ export function Sidebar() {
         </nav>
 
         <div className="p-4 border-t border-primary-700">
+          {/* Botão de notificações gerais (todos os usuários) */}
+          <button
+            onClick={() => setShowNotificacoes(true)}
+            className="w-full flex items-center gap-3 px-3 py-2.5 mb-2 rounded-lg text-sm text-primary-200 hover:bg-white/10 hover:text-white transition-colors"
+          >
+            <div className="relative">
+              <Bell className="w-4 h-4" />
+              {!!notifCount && notifCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                  {notifCount}
+                </span>
+              )}
+            </div>
+            <span>Notificações</span>
+            {!!notifCount && notifCount > 0 && (
+              <span className="ml-auto bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">{notifCount}</span>
+            )}
+          </button>
+
           {/* Botão de notificações de senha (master) */}
           {isMaster && (
             <button
@@ -238,6 +291,51 @@ export function Sidebar() {
                         </div>
                       )}
                     </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de notificações gerais */}
+      {showNotificacoes && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <div>
+                <h2 className="font-semibold text-gray-800">Notificações</h2>
+                <p className="text-xs text-gray-500 mt-0.5">{notificacoes.filter(n => !n.lida).length} não lida(s)</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {notificacoes.some(n => !n.lida) && (
+                  <button onClick={() => marcarTodasLidas.mutate()} className="text-xs text-primary-600 hover:underline">
+                    Marcar todas como lidas
+                  </button>
+                )}
+                <button onClick={() => setShowNotificacoes(false)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto flex-1 p-5">
+              {notificacoes.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <Bell className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">Nenhuma notificação</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {notificacoes.map(n => (
+                    <button
+                      key={n.id}
+                      onClick={() => !n.lida && marcarLida.mutate(n.id)}
+                      className={`w-full text-left p-3 rounded-lg border transition-colors ${n.lida ? 'bg-white border-gray-100' : 'bg-primary-50 border-primary-200'}`}
+                    >
+                      <p className={`text-sm ${n.lida ? 'text-gray-600' : 'text-gray-800 font-medium'}`}>{n.mensagem}</p>
+                      <p className="text-xs text-gray-400 mt-1">{format(new Date(n.createdAt), "dd/MM/yy HH:mm", { locale: ptBR })}</p>
+                    </button>
                   ))}
                 </div>
               )}

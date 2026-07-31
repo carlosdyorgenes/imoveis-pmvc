@@ -30,26 +30,54 @@ enum StatusTarefa {
 }
 
 model User {
-  id         String   @id @default(uuid())
-  name       String
-  email      String   @unique
-  password   String
-  role       UserRole @default(PADRAO)
-  active     Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      UserRole @default(PADRAO)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  ocorrencias        Ocorrencia[]
-  tarefaCards        TarefaCard[]
-  logs               Log[]
-  tarefasCreated     Tarefa[]
-  solicitacoesSenha  SolicitacaoSenha[] @relation("SolicitacaoUser")
+  ocorrencias            Ocorrencia[]
+  tarefaCards            TarefaCard[]
+  logs                   Log[]
+  tarefasCreated         Tarefa[]
+  solicitacoesSenha      SolicitacaoSenha[] @relation("SolicitacaoUser")
   solicitacoesResolvidas SolicitacaoSenha[] @relation("SolicitacaoResolved")
-  demandasCriadas    Demanda[]          @relation("DemandaSolicitante")
-  atividadesResponsavel Atividade[]     @relation("AtividadeResponsavel")
-  atividadesCriadas  Atividade[]        @relation("AtividadeSolicitante")
+  demandasCriadas        Demanda[]          @relation("DemandaSolicitante")
+  atividadesResponsavel  Atividade[]        @relation("AtividadeResponsavel")
+  atividadesCriadas      Atividade[]        @relation("AtividadeSolicitante")
+  equipeMembros          EquipeMembro[]
+  notificacoes           Notificacao[]
 
   @@map("users")
+}
+
+model Equipe {
+  id        String   @id @default(uuid())
+  nome      String   @unique
+  descricao String?
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  membros    EquipeMembro[]
+  atividades Atividade[]
+
+  @@map("equipes")
+}
+
+model EquipeMembro {
+  id        String  @id @default(uuid())
+  equipeId  String
+  userId    String
+  principal Boolean @default(false)
+
+  equipe Equipe @relation(fields: [equipeId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([equipeId, userId])
+  @@map("equipe_membros")
 }
 
 enum StatusDemanda {
@@ -71,7 +99,7 @@ enum StatusAtividade {
 }
 
 model Demanda {
-  id            String    @id @default(uuid())
+  id            String        @id @default(uuid())
   gepNumero     String
   gepAno        String
   assunto       String
@@ -80,49 +108,133 @@ model Demanda {
   status        StatusDemanda @default(ABERTA)
   prazo         DateTime?
   solicitanteId String
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  tipoDemandaId String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
-  solicitante   User        @relation("DemandaSolicitante", fields: [solicitanteId], references: [id])
-  atividades    Atividade[]
-  historico     HistoricoDemanda[]
+  solicitante        User               @relation("DemandaSolicitante", fields: [solicitanteId], references: [id])
+  tipoDemanda        TipoDemanda?       @relation(fields: [tipoDemandaId], references: [id])
+  atividades         Atividade[]
+  historico          HistoricoDemanda[]
+  pendenciasExternas PendenciaExterna[]
 
   @@index([gepNumero, gepAno])
   @@map("demandas")
 }
 
+// Atividade é atribuída a um usuário OU a uma equipe (qualquer membro da equipe pode agir).
 model Atividade {
-  id             String   @id @default(uuid())
-  demandaId      String
-  titulo         String
-  instrucoes     String?
-  responsavelId  String
-  solicitanteId  String
-  status         StatusAtividade @default(ATRIBUIDA)
-  prazo          DateTime?
-  observacoes    String?
+  id              String          @id @default(uuid())
+  demandaId       String
+  titulo          String
+  instrucoes      String?
+  responsavelId   String?
+  equipeId        String?
+  solicitanteId   String
+  status          StatusAtividade @default(ATRIBUIDA)
+  prazo           DateTime?
+  observacoes     String?
   motivoDevolucao String?
-  linkDocumento  String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  linkDocumento   String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
-  demanda        Demanda  @relation(fields: [demandaId], references: [id], onDelete: Cascade)
-  responsavel    User     @relation("AtividadeResponsavel", fields: [responsavelId], references: [id])
-  solicitante    User     @relation("AtividadeSolicitante", fields: [solicitanteId], references: [id])
-  passos         PassoAtividade[]
+  demanda     Demanda              @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  responsavel User?                @relation("AtividadeResponsavel", fields: [responsavelId], references: [id])
+  equipe      Equipe?              @relation(fields: [equipeId], references: [id])
+  solicitante User                 @relation("AtividadeSolicitante", fields: [solicitanteId], references: [id])
+  passos      PassoAtividade[]
+  documentos  DocumentoAtividade[]
 
   @@map("atividades")
 }
 
+model TipoDemanda {
+  id              String   @id @default(uuid())
+  nome            String   @unique
+  descricao       String?
+  prazoPadraoDias Int?
+  ativo           Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  etapasModelo ModeloEtapa[]
+  demandas     Demanda[]
+
+  @@map("tipos_demanda")
+}
+
+// Etapas padrão de um tipo de demanda (motor de fluxo configurável e simplificado):
+// ao criar uma demanda com um tipo selecionado, as atividades abaixo são geradas automaticamente.
+model ModeloEtapa {
+  id            String  @id @default(uuid())
+  tipoDemandaId String
+  titulo        String
+  instrucoes    String?
+  ordem         Int     @default(0)
+  equipeId      String?
+  prazoDias     Int?
+
+  tipoDemanda TipoDemanda @relation(fields: [tipoDemandaId], references: [id], onDelete: Cascade)
+
+  @@map("modelo_etapas")
+}
+
+model DocumentoAtividade {
+  id          String   @id @default(uuid())
+  atividadeId String
+  nome        String
+  linkDrive   String
+  versao      Int      @default(1)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  atividade Atividade @relation(fields: [atividadeId], references: [id], onDelete: Cascade)
+
+  @@map("documentos_atividade")
+}
+
+model PendenciaExterna {
+  id              String    @id @default(uuid())
+  demandaId       String
+  orgao           String
+  descricao       String
+  dataSolicitacao DateTime  @default(now())
+  protocolo       String?
+  prazoEsperado   DateTime?
+  status          String    @default("AGUARDANDO")
+  resposta        String?
+  ultimaCobranca  DateTime?
+  createdAt       DateTime  @default(now())
+
+  demanda Demanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+
+  @@map("pendencias_externas")
+}
+
+model Notificacao {
+  id          String   @id @default(uuid())
+  userId      String
+  tipo        String
+  mensagem    String
+  demandaId   String?
+  atividadeId String?
+  lida        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notificacoes")
+}
+
 model PassoAtividade {
-  id          String    @id @default(uuid())
+  id          String   @id @default(uuid())
   atividadeId String
   descricao   String
-  concluido   Boolean   @default(false)
-  ordem       Int       @default(0)
-  createdAt   DateTime  @default(now())
+  concluido   Boolean  @default(false)
+  ordem       Int      @default(0)
+  createdAt   DateTime @default(now())
 
-  atividade   Atividade @relation(fields: [atividadeId], references: [id], onDelete: Cascade)
+  atividade Atividade @relation(fields: [atividadeId], references: [id], onDelete: Cascade)
 
   @@map("passos_atividade")
 }
@@ -135,62 +247,62 @@ model HistoricoDemanda {
   descricao String
   createdAt DateTime @default(now())
 
-  demanda   Demanda  @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  demanda Demanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)
 
   @@map("historico_demandas")
 }
 
 model Imovel {
-  id                    String     @id @default(uuid())
-  inscricaoImobiliaria  String     @unique
-  registroCartorario    String?
-  cartorioImoveis       String?
-  logradouro            String
-  numero                String?
-  complemento           String?
-  bairro                String
-  cidade                String
-  estado                String
-  cep                   String?
-  secretaria            String
-  tipo                  TipoImovel
-  zona                  ZonaImovel
-  latitude              Float?
-  longitude             Float?
-  area                  Float?
-  observacoes           String?
-  createdAt             DateTime   @default(now())
-  updatedAt             DateTime   @updatedAt
+  id                   String     @id @default(uuid())
+  inscricaoImobiliaria String     @unique
+  registroCartorario   String?
+  cartorioImoveis      String?
+  logradouro           String
+  numero               String?
+  complemento          String?
+  bairro               String
+  cidade               String
+  estado               String
+  cep                  String?
+  secretaria           String
+  tipo                 TipoImovel
+  zona                 ZonaImovel
+  latitude             Float?
+  longitude            Float?
+  area                 Float?
+  observacoes          String?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
 
-  documentos    Documento[]
-  ocorrencias   Ocorrencia[]
-  tarefaCards   TarefaCard[]
+  documentos  Documento[]
+  ocorrencias Ocorrencia[]
+  tarefaCards TarefaCard[]
 
   @@map("imoveis")
 }
 
 model Documento {
-  id          String   @id @default(uuid())
-  imovelId    String
-  descricao   String
-  linkDrive   String
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  imovelId  String
+  descricao String
+  linkDrive String
+  createdAt DateTime @default(now())
 
-  imovel      Imovel   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+  imovel Imovel @relation(fields: [imovelId], references: [id], onDelete: Cascade)
 
   @@map("documentos")
 }
 
 model Ocorrencia {
-  id          String   @id @default(uuid())
-  imovelId    String
-  userId      String
-  descricao   String
-  tipo        String   @default("MANUAL")
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  imovelId  String
+  userId    String
+  descricao String
+  tipo      String   @default("MANUAL")
+  createdAt DateTime @default(now())
 
-  imovel      Imovel   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
-  user        User     @relation(fields: [userId], references: [id])
+  imovel Imovel @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
 
   @@map("ocorrencias")
 }
@@ -204,55 +316,55 @@ model Tarefa {
   updatedAt   DateTime @updatedAt
   createdById String
 
-  createdBy   User     @relation(fields: [createdById], references: [id])
-  etapas      Etapa[]
+  createdBy User    @relation(fields: [createdById], references: [id])
+  etapas    Etapa[]
 
   @@map("tarefas")
 }
 
 model Etapa {
-  id        String       @id @default(uuid())
+  id        String   @id @default(uuid())
   tarefaId  String
   titulo    String
-  ordem     Int          @default(0)
-  createdAt DateTime     @default(now())
+  ordem     Int      @default(0)
+  createdAt DateTime @default(now())
 
-  tarefa    Tarefa       @relation(fields: [tarefaId], references: [id], onDelete: Cascade)
-  cards     TarefaCard[]
+  tarefa Tarefa       @relation(fields: [tarefaId], references: [id], onDelete: Cascade)
+  cards  TarefaCard[]
 
   @@map("etapas")
 }
 
 model TarefaCard {
-  id           String   @id @default(uuid())
-  etapaId      String
-  imovelId     String
-  userId       String
-  observacoes  String?
-  ordem        Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String   @id @default(uuid())
+  etapaId     String
+  imovelId    String
+  userId      String
+  observacoes String?
+  ordem       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  etapa        Etapa    @relation(fields: [etapaId], references: [id], onDelete: Cascade)
-  imovel       Imovel   @relation(fields: [imovelId], references: [id], onDelete: Cascade)
-  user         User     @relation(fields: [userId], references: [id])
-  passos       Passo[]
+  etapa  Etapa   @relation(fields: [etapaId], references: [id], onDelete: Cascade)
+  imovel Imovel  @relation(fields: [imovelId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id])
+  passos Passo[]
 
   @@map("tarefa_cards")
 }
 
 model Passo {
-  id          String     @id @default(uuid())
+  id          String   @id @default(uuid())
   cardId      String
   descricao   String
-  concluido   Boolean    @default(false)
-  ordem       Int        @default(0)
+  concluido   Boolean  @default(false)
+  ordem       Int      @default(0)
   // Etapa em que o passo foi criado (snapshot para histórico)
   etapaId     String?
   etapaTitulo String?
-  createdAt   DateTime   @default(now())
+  createdAt   DateTime @default(now())
 
-  card        TarefaCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  card TarefaCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
 
   @@map("passos")
 }
@@ -265,8 +377,8 @@ model SolicitacaoSenha {
   resolvedAt   DateTime?
   resolvedById String?
 
-  user         User      @relation("SolicitacaoUser", fields: [userId], references: [id])
-  resolvedBy   User?     @relation("SolicitacaoResolved", fields: [resolvedById], references: [id])
+  user       User  @relation("SolicitacaoUser", fields: [userId], references: [id])
+  resolvedBy User? @relation("SolicitacaoResolved", fields: [resolvedById], references: [id])
 
   @@map("solicitacoes_senha")
 }
@@ -281,7 +393,7 @@ model Log {
   ip        String?
   createdAt DateTime @default(now())
 
-  user      User?    @relation(fields: [userId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
 
   @@map("logs")
 }

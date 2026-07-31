@@ -2,9 +2,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { Demanda, Atividade, StatusAtividade, User } from '@/types'
+import { Demanda, Atividade, StatusAtividade, User, Equipe } from '@/types'
 import Link from 'next/link'
-import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock } from 'lucide-react'
+import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -37,13 +37,22 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
 
   const [showNovaAtividade, setShowNovaAtividade] = useState(false)
   const [novoTitulo, setNovoTitulo] = useState('')
+  const [tipoAtribuicao, setTipoAtribuicao] = useState<'usuario' | 'equipe'>('usuario')
   const [novoResponsavel, setNovoResponsavel] = useState('')
+  const [novaEquipe, setNovaEquipe] = useState('')
   const [novasInstrucoes, setNovasInstrucoes] = useState('')
 
   const [atividadeAberta, setAtividadeAberta] = useState<string | null>(null)
   const [novoPasso, setNovoPasso] = useState('')
   const [devolverMotivo, setDevolverMotivo] = useState('')
   const [showDevolver, setShowDevolver] = useState(false)
+  const [novoDocNome, setNovoDocNome] = useState('')
+  const [novoDocLink, setNovoDocLink] = useState('')
+
+  const [showPendencia, setShowPendencia] = useState(false)
+  const [pOrgao, setPOrgao] = useState('')
+  const [pDescricao, setPDescricao] = useState('')
+  const [pProtocolo, setPProtocolo] = useState('')
 
   const { data: demanda, isLoading } = useQuery<Demanda>({
     queryKey: ['demanda', id],
@@ -55,13 +64,23 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     queryFn: () => api.get('/api/usuarios').then(r => r.data),
   })
 
+  const { data: equipes = [] } = useQuery<Equipe[]>({
+    queryKey: ['equipes'],
+    queryFn: () => api.get('/api/equipes').then(r => r.data),
+  })
+
   const invalidar = () => qc.invalidateQueries({ queryKey: ['demanda', id] })
 
   const createAtividade = useMutation({
-    mutationFn: () => api.post(`/api/demandas/${id}/atividades`, { titulo: novoTitulo, responsavelId: novoResponsavel, instrucoes: novasInstrucoes }),
+    mutationFn: () => api.post(`/api/demandas/${id}/atividades`, {
+      titulo: novoTitulo,
+      instrucoes: novasInstrucoes,
+      responsavelId: tipoAtribuicao === 'usuario' ? novoResponsavel : undefined,
+      equipeId: tipoAtribuicao === 'equipe' ? novaEquipe : undefined,
+    }),
     onSuccess: () => {
       invalidar(); toast.success('Atividade atribuída')
-      setShowNovaAtividade(false); setNovoTitulo(''); setNovoResponsavel(''); setNovasInstrucoes('')
+      setShowNovaAtividade(false); setNovoTitulo(''); setNovoResponsavel(''); setNovaEquipe(''); setNovasInstrucoes('')
     },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao criar atividade'))
   })
@@ -85,11 +104,37 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao atualizar passo'))
   })
 
+  const addDocumento = useMutation({
+    mutationFn: (atividadeId: string) => api.post(`/api/demandas/atividades/${atividadeId}/documentos`, { nome: novoDocNome, linkDrive: novoDocLink }),
+    onSuccess: () => { invalidar(); setNovoDocNome(''); setNovoDocLink(''); toast.success('Documento anexado') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao anexar documento'))
+  })
+
+  const deleteDocumento = useMutation({
+    mutationFn: (docId: string) => api.delete(`/api/demandas/documentos/${docId}`),
+    onSuccess: invalidar,
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao remover documento'))
+  })
+
+  const createPendencia = useMutation({
+    mutationFn: () => api.post(`/api/demandas/${id}/pendencias`, { orgao: pOrgao, descricao: pDescricao, protocolo: pProtocolo }),
+    onSuccess: () => { invalidar(); setShowPendencia(false); setPOrgao(''); setPDescricao(''); setPProtocolo(''); toast.success('Pendência externa registrada') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao registrar pendência'))
+  })
+
+  const resolverPendencia = useMutation({
+    mutationFn: (pendId: string) => api.put(`/api/demandas/pendencias/${pendId}`, { status: 'RESPONDIDA' }),
+    onSuccess: () => { invalidar(); toast.success('Pendência marcada como respondida') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao atualizar pendência'))
+  })
+
   if (isLoading) return <div className="p-8 text-center text-gray-400">Carregando...</div>
   if (!demanda) return <div className="p-8 text-center text-gray-400">Demanda não encontrada</div>
 
   const atividadeModal = demanda.atividades.find(a => a.id === atividadeAberta) || null
-  const isResponsavel = (a: Atividade) => a.responsavel.id === user?.id
+  const isResponsavelUsuario = (a: Atividade) => a.responsavel?.id === user?.id
+  const isMembroEquipe = (a: Atividade) => !!a.equipe && !!equipes.find(e => e.id === a.equipe!.id)?.membros.some(m => m.user.id === user?.id)
+  const isResponsavel = (a: Atividade) => isResponsavelUsuario(a) || isMembroEquipe(a)
   const isSolicitante = (a: Atividade) => a.solicitante.id === user?.id
   const podeGerenciarChecklist = (a: Atividade) => isMaster || isResponsavel(a) || isSolicitante(a)
 
@@ -101,7 +146,10 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
         </Link>
         <div>
           <h1 className="text-xl font-bold text-gray-900 font-mono">GEP {demanda.gepNumero}/{demanda.gepAno}</h1>
-          <p className="text-gray-500 text-sm">{demanda.assunto}{demanda.interessado ? ` — ${demanda.interessado}` : ''}</p>
+          <p className="text-gray-500 text-sm">
+            {demanda.assunto}{demanda.interessado ? ` — ${demanda.interessado}` : ''}
+            {demanda.tipoDemanda && <span className="ml-2 text-xs bg-primary-50 text-primary-700 px-2 py-0.5 rounded-full">{demanda.tipoDemanda.nome}</span>}
+          </p>
         </div>
       </div>
 
@@ -123,11 +171,22 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 <input className="input" placeholder="Ex: Elaborar parecer jurídico" value={novoTitulo} onChange={e => setNovoTitulo(e.target.value)} autoFocus />
               </div>
               <div>
-                <label className="label">Responsável</label>
-                <select className="input" value={novoResponsavel} onChange={e => setNovoResponsavel(e.target.value)}>
-                  <option value="">Selecione...</option>
-                  {usuarios.filter(u => u.active).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select>
+                <label className="label">Atribuir a</label>
+                <div className="flex gap-2 mb-2">
+                  <button type="button" onClick={() => setTipoAtribuicao('usuario')} className={`text-xs px-3 py-1.5 rounded-lg border ${tipoAtribuicao === 'usuario' ? 'bg-primary-50 border-primary-300 text-primary-700' : 'border-gray-200 text-gray-500'}`}>Usuário</button>
+                  <button type="button" onClick={() => setTipoAtribuicao('equipe')} className={`text-xs px-3 py-1.5 rounded-lg border ${tipoAtribuicao === 'equipe' ? 'bg-primary-50 border-primary-300 text-primary-700' : 'border-gray-200 text-gray-500'}`}>Equipe</button>
+                </div>
+                {tipoAtribuicao === 'usuario' ? (
+                  <select className="input" value={novoResponsavel} onChange={e => setNovoResponsavel(e.target.value)}>
+                    <option value="">Selecione o responsável...</option>
+                    {usuarios.filter(u => u.active).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                ) : (
+                  <select className="input" value={novaEquipe} onChange={e => setNovaEquipe(e.target.value)}>
+                    <option value="">Selecione a equipe...</option>
+                    {equipes.filter(e => e.ativo).map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+                  </select>
+                )}
               </div>
               <div>
                 <label className="label">Instruções</label>
@@ -136,8 +195,8 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               <div className="flex gap-2">
                 <button onClick={() => setShowNovaAtividade(false)} className="btn-secondary flex-1 justify-center text-xs">Cancelar</button>
                 <button
-                  onClick={() => novoTitulo.trim() && novoResponsavel && createAtividade.mutate()}
-                  disabled={!novoTitulo.trim() || !novoResponsavel || createAtividade.isPending}
+                  onClick={() => novoTitulo.trim() && (novoResponsavel || novaEquipe) && createAtividade.mutate()}
+                  disabled={!novoTitulo.trim() || (!novoResponsavel && !novaEquipe) || createAtividade.isPending}
                   className="btn-primary flex-1 justify-center text-xs"
                 >
                   Atribuir
@@ -158,7 +217,9 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-medium text-gray-800 text-sm truncate">{a.titulo}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">Responsável: {a.responsavel.name}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {a.equipe ? `Equipe: ${a.equipe.nome}` : `Responsável: ${a.responsavel?.name}`}
+                    </p>
                     {total > 0 && (
                       <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
                         <ListChecks className="w-3 h-3" /> {done}/{total} passos concluídos
@@ -172,6 +233,69 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               </button>
             )
           })}
+
+          {/* Pendências externas */}
+          <div className="flex items-center justify-between mt-6">
+            <h2 className="font-semibold text-gray-800 flex items-center gap-1.5">
+              <Building2 className="w-4 h-4 text-amber-600" /> Pendências Externas
+            </h2>
+            <button onClick={() => setShowPendencia(true)} className="btn-secondary text-xs">
+              <Plus className="w-3.5 h-3.5" /> Registrar
+            </button>
+          </div>
+
+          {showPendencia && (
+            <div className="card space-y-3">
+              <div>
+                <label className="label">Órgão / Pessoa</label>
+                <input className="input" placeholder="Ex: Seinfra, Patrimônio, Cartório..." value={pOrgao} onChange={e => setPOrgao(e.target.value)} autoFocus />
+              </div>
+              <div>
+                <label className="label">Descrição</label>
+                <textarea className="input min-h-16 resize-none" placeholder="O que foi solicitado..." value={pDescricao} onChange={e => setPDescricao(e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Protocolo (opcional)</label>
+                <input className="input" value={pProtocolo} onChange={e => setPProtocolo(e.target.value)} />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setShowPendencia(false)} className="btn-secondary flex-1 justify-center text-xs">Cancelar</button>
+                <button
+                  onClick={() => pOrgao.trim() && pDescricao.trim() && createPendencia.mutate()}
+                  disabled={!pOrgao.trim() || !pDescricao.trim() || createPendencia.isPending}
+                  className="btn-primary flex-1 justify-center text-xs"
+                >
+                  Registrar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(demanda.pendenciasExternas || []).length === 0 && !showPendencia ? (
+            <p className="text-xs text-gray-400 text-center py-3">Nenhuma pendência externa registrada</p>
+          ) : (
+            <div className="space-y-2">
+              {(demanda.pendenciasExternas || []).map(p => (
+                <div key={p.id} className="card py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{p.orgao}</p>
+                      <p className="text-xs text-gray-600 mt-0.5">{p.descricao}</p>
+                      {p.protocolo && <p className="text-xs text-gray-400 mt-0.5">Protocolo: {p.protocolo}</p>}
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${p.status === 'RESPONDIDA' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {p.status === 'RESPONDIDA' ? 'Respondida' : 'Aguardando'}
+                    </span>
+                  </div>
+                  {p.status !== 'RESPONDIDA' && (
+                    <button onClick={() => resolverPendencia.mutate(p.id)} className="text-xs text-primary-600 hover:underline mt-2">
+                      Marcar como respondida
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="space-y-4">
@@ -203,7 +327,9 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
             <div className="flex items-start justify-between p-5 border-b border-gray-100">
               <div>
                 <p className="font-semibold text-gray-800">{atividadeModal.titulo}</p>
-                <p className="text-xs text-gray-500 mt-0.5">Responsável: {atividadeModal.responsavel.name} · Solicitante: {atividadeModal.solicitante.name}</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {atividadeModal.equipe ? `Equipe: ${atividadeModal.equipe.nome}` : `Responsável: ${atividadeModal.responsavel?.name}`} · Solicitante: {atividadeModal.solicitante.name}
+                </p>
                 <span className={`inline-block mt-1.5 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_ATIV_COLOR[atividadeModal.status]}`}>
                   {STATUS_ATIV_LABEL[atividadeModal.status]}
                 </span>
@@ -265,6 +391,45 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                         />
                         <span className={p.concluido ? 'text-gray-400 line-through' : 'text-gray-700'}>{p.descricao}</span>
                       </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5" /> Documentos
+                </p>
+                {podeGerenciarChecklist(atividadeModal) && (
+                  <div className="flex gap-2 mb-2">
+                    <input className="input text-sm flex-1" placeholder="Nome (ex: Planta, Memorial...)" value={novoDocNome} onChange={e => setNovoDocNome(e.target.value)} />
+                    <input className="input text-sm flex-1" placeholder="Link do Google Drive" value={novoDocLink} onChange={e => setNovoDocLink(e.target.value)} />
+                    <button
+                      onClick={() => novoDocNome.trim() && novoDocLink.trim() && addDocumento.mutate(atividadeModal.id)}
+                      disabled={!novoDocNome.trim() || !novoDocLink.trim()}
+                      className="btn-primary text-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+                {atividadeModal.documentos.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-3">Nenhum documento anexado</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {atividadeModal.documentos.map(d => (
+                      <div key={d.id} className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-gray-50 group">
+                        <a href={d.linkDrive} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0">
+                          <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span className="truncate">{d.nome}</span>
+                          <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
+                        </a>
+                        {podeGerenciarChecklist(atividadeModal) && (
+                          <button onClick={() => deleteDocumento.mutate(d.id)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
