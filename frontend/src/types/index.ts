@@ -2,6 +2,9 @@ export type UserRole = 'MASTER' | 'PADRAO'
 export type TipoImovel = 'PROPRIO' | 'LOCADO'
 export type ZonaImovel = 'URBANO' | 'RURAL'
 
+export type StatusDemanda = 'ABERTA' | 'EM_ANDAMENTO' | 'AGUARDANDO_TERCEIRO' | 'DEVOLVIDA' | 'CONCLUIDA' | 'CANCELADA'
+export type StatusAtividade = 'ATRIBUIDA' | 'EM_ANDAMENTO' | 'CONCLUIDA' | 'DEVOLVIDA' | 'APROVADA' | 'CANCELADA'
+
 export interface User {
   id: string
   name: string
@@ -98,6 +101,55 @@ export interface Tarefa {
   ordem: number
   etapas: Etapa[]
   createdAt: string
+}
+
+export interface PassoAtividade {
+  id: string
+  atividadeId: string
+  descricao: string
+  concluido: boolean
+  ordem: number
+  createdAt: string
+}
+
+export interface Atividade {
+  id: string
+  demandaId: string
+  titulo: string
+  instrucoes?: string
+  status: StatusAtividade
+  prazo?: string
+  observacoes?: string
+  motivoDevolucao?: string
+  linkDocumento?: string
+  createdAt: string
+  responsavel: { id: string; name: string }
+  solicitante: { id: string; name: string }
+  passos: PassoAtividade[]
+}
+
+export interface HistoricoDemanda {
+  id: string
+  demandaId: string
+  userId?: string
+  acao: string
+  descricao: string
+  createdAt: string
+}
+
+export interface Demanda {
+  id: string
+  gepNumero: string
+  gepAno: string
+  assunto: string
+  descricao?: string
+  interessado?: string
+  status: StatusDemanda
+  prazo?: string
+  createdAt: string
+  solicitante: { id: string; name: string }
+  atividades: Atividade[]
+  historico?: HistoricoDemanda[]
 }
 
 export interface Log {

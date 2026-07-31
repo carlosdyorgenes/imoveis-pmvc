@@ -45,8 +45,99 @@ model User {
   tarefasCreated     Tarefa[]
   solicitacoesSenha  SolicitacaoSenha[] @relation("SolicitacaoUser")
   solicitacoesResolvidas SolicitacaoSenha[] @relation("SolicitacaoResolved")
+  demandasCriadas    Demanda[]          @relation("DemandaSolicitante")
+  atividadesResponsavel Atividade[]     @relation("AtividadeResponsavel")
+  atividadesCriadas  Atividade[]        @relation("AtividadeSolicitante")
 
   @@map("users")
+}
+
+enum StatusDemanda {
+  ABERTA
+  EM_ANDAMENTO
+  AGUARDANDO_TERCEIRO
+  DEVOLVIDA
+  CONCLUIDA
+  CANCELADA
+}
+
+enum StatusAtividade {
+  ATRIBUIDA
+  EM_ANDAMENTO
+  CONCLUIDA
+  DEVOLVIDA
+  APROVADA
+  CANCELADA
+}
+
+model Demanda {
+  id            String    @id @default(uuid())
+  gepNumero     String
+  gepAno        String
+  assunto       String
+  descricao     String?
+  interessado   String?
+  status        StatusDemanda @default(ABERTA)
+  prazo         DateTime?
+  solicitanteId String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  solicitante   User        @relation("DemandaSolicitante", fields: [solicitanteId], references: [id])
+  atividades    Atividade[]
+  historico     HistoricoDemanda[]
+
+  @@index([gepNumero, gepAno])
+  @@map("demandas")
+}
+
+model Atividade {
+  id             String   @id @default(uuid())
+  demandaId      String
+  titulo         String
+  instrucoes     String?
+  responsavelId  String
+  solicitanteId  String
+  status         StatusAtividade @default(ATRIBUIDA)
+  prazo          DateTime?
+  observacoes    String?
+  motivoDevolucao String?
+  linkDocumento  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  demanda        Demanda  @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  responsavel    User     @relation("AtividadeResponsavel", fields: [responsavelId], references: [id])
+  solicitante    User     @relation("AtividadeSolicitante", fields: [solicitanteId], references: [id])
+  passos         PassoAtividade[]
+
+  @@map("atividades")
+}
+
+model PassoAtividade {
+  id          String    @id @default(uuid())
+  atividadeId String
+  descricao   String
+  concluido   Boolean   @default(false)
+  ordem       Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  atividade   Atividade @relation(fields: [atividadeId], references: [id], onDelete: Cascade)
+
+  @@map("passos_atividade")
+}
+
+model HistoricoDemanda {
+  id        String   @id @default(uuid())
+  demandaId String
+  userId    String?
+  acao      String
+  descricao String
+  createdAt DateTime @default(now())
+
+  demanda   Demanda  @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+
+  @@map("historico_demandas")
 }
 
 model Imovel {

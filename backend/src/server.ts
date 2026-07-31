@@ -10,6 +10,7 @@ import { authRouter } from './routes/auth.routes'
 import { imoveisRouter } from './routes/imoveis.routes'
 import { ocorrenciasRouter } from './routes/ocorrencias.routes'
 import { tarefasRouter } from './routes/tarefas.routes'
+import { demandasRouter } from './routes/demandas.routes'
 import { usuariosRouter } from './routes/usuarios.routes'
 import { relatoriosRouter } from './routes/relatorios.routes'
 import { logsRouter } from './routes/logs.routes'
@@ -33,6 +34,7 @@ app.use('/api/auth', authRouter)
 app.use('/api/imoveis', imoveisRouter)
 app.use('/api/ocorrencias', ocorrenciasRouter)
 app.use('/api/tarefas', tarefasRouter)
+app.use('/api/demandas', demandasRouter)
 app.use('/api/usuarios', usuariosRouter)
 app.use('/api/relatorios', relatoriosRouter)
 app.use('/api/logs', logsRouter)

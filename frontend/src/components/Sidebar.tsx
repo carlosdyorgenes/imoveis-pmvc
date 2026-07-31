@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import {
   Building2, LayoutDashboard, MapPin, ClipboardList,
-  KanbanSquare, BarChart3, Users, ScrollText, LogOut, Menu, X, Bell
+  KanbanSquare, BarChart3, Users, ScrollText, LogOut, Menu, X, Bell, FileStack
 } from 'lucide-react'
 import { useState } from 'react'
 import toast from 'react-hot-toast'
@@ -17,6 +17,7 @@ const navItems = [
   { href: '/imoveis', label: 'Imóveis', icon: Building2 },
   { href: '/ocorrencias', label: 'Ocorrências', icon: ClipboardList },
   { href: '/tarefas', label: 'Tarefas', icon: KanbanSquare },
+  { href: '/demandas', label: 'Demandas', icon: FileStack },
   { href: '/mapa', label: 'Mapa', icon: MapPin },
   { href: '/relatorios', label: 'Relatórios', icon: BarChart3 },
   { href: '/usuarios', label: 'Usuários', icon: Users, masterOnly: true },
