@@ -33,7 +33,7 @@ const STATUS_ATIV_COLOR: Record<StatusAtividade, string> = {
 export default function DemandaDetailPage({ params }: { params: { id: string } }) {
   const { id } = params
   const qc = useQueryClient()
-  const { user } = useAuth()
+  const { user, isMaster } = useAuth()
 
   const [showNovaAtividade, setShowNovaAtividade] = useState(false)
   const [novoTitulo, setNovoTitulo] = useState('')
@@ -91,6 +91,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const atividadeModal = demanda.atividades.find(a => a.id === atividadeAberta) || null
   const isResponsavel = (a: Atividade) => a.responsavel.id === user?.id
   const isSolicitante = (a: Atividade) => a.solicitante.id === user?.id
+  const podeGerenciarChecklist = (a: Atividade) => isMaster || isResponsavel(a) || isSolicitante(a)
 
   return (
     <div>
@@ -108,9 +109,11 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
         <div className="lg:col-span-2 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-800">Atividades</h2>
-            <button onClick={() => setShowNovaAtividade(true)} className="btn-primary text-xs">
-              <Plus className="w-3.5 h-3.5" /> Nova Atividade
-            </button>
+            {(isMaster || demanda.solicitante.id === user?.id) && (
+              <button onClick={() => setShowNovaAtividade(true)} className="btn-primary text-xs">
+                <Plus className="w-3.5 h-3.5" /> Nova Atividade
+              </button>
+            )}
           </div>
 
           {showNovaAtividade && (
@@ -229,31 +232,34 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1.5">
                   <ListChecks className="w-3.5 h-3.5" /> Checklist
                 </p>
-                <div className="flex gap-2 mb-2">
-                  <input
-                    className="input text-sm flex-1"
-                    placeholder="Adicionar item ao checklist..."
-                    value={novoPasso}
-                    onChange={e => setNovoPasso(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && novoPasso.trim() && addPasso.mutate(atividadeModal.id)}
-                  />
-                  <button
-                    onClick={() => novoPasso.trim() && addPasso.mutate(atividadeModal.id)}
-                    disabled={!novoPasso.trim()}
-                    className="btn-primary text-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                {podeGerenciarChecklist(atividadeModal) && (
+                  <div className="flex gap-2 mb-2">
+                    <input
+                      className="input text-sm flex-1"
+                      placeholder="Adicionar item ao checklist..."
+                      value={novoPasso}
+                      onChange={e => setNovoPasso(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && novoPasso.trim() && addPasso.mutate(atividadeModal.id)}
+                    />
+                    <button
+                      onClick={() => novoPasso.trim() && addPasso.mutate(atividadeModal.id)}
+                      disabled={!novoPasso.trim()}
+                      className="btn-primary text-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
                 {atividadeModal.passos.length === 0 ? (
                   <p className="text-xs text-gray-400 text-center py-3">Nenhum item no checklist</p>
                 ) : (
                   <div className="space-y-1.5">
                     {atividadeModal.passos.map(p => (
-                      <label key={p.id} className={`flex items-center gap-2 p-2 rounded-lg border text-sm ${p.concluido ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
+                      <label key={p.id} className={`flex items-center gap-2 p-2 rounded-lg border text-sm ${p.concluido ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'} ${!podeGerenciarChecklist(atividadeModal) ? 'opacity-70' : ''}`}>
                         <input
                           type="checkbox"
                           checked={p.concluido}
+                          disabled={!podeGerenciarChecklist(atividadeModal)}
                           onChange={e => togglePasso.mutate({ id: p.id, concluido: e.target.checked })}
                           className="w-4 h-4 accent-green-600"
                         />

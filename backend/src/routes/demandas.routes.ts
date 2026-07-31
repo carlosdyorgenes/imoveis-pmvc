@@ -81,6 +81,12 @@ demandasRouter.post('/', async (req: AuthRequest, res) => {
 })
 
 demandasRouter.put('/:id', async (req: AuthRequest, res) => {
+  const existente = await prisma.demanda.findUnique({ where: { id: req.params.id } })
+  if (!existente) throw new AppError('Demanda não encontrada', 404)
+  if (req.user!.role !== 'MASTER' && existente.solicitanteId !== req.user!.id) {
+    throw new AppError('Somente quem criou a demanda (ou o Master) pode editá-la', 403)
+  }
+
   const { assunto, descricao, interessado, prazo } = req.body
   const demanda = await prisma.demanda.update({
     where: { id: req.params.id },
@@ -110,6 +116,10 @@ demandasRouter.put('/:id/status', async (req: AuthRequest, res) => {
     throw new AppError(`Transição inválida: "${demanda.status}" não pode ir para "${status}"`)
   }
 
+  if (req.user!.role !== 'MASTER' && demanda.solicitanteId !== req.user!.id) {
+    throw new AppError('Somente quem criou a demanda (ou o Master) pode alterar seu status', 403)
+  }
+
   const atualizada = await prisma.demanda.update({ where: { id: demanda.id }, data: { status } })
   await registrarHistorico(demanda.id, req.user!.id, 'STATUS', `Status alterado de "${demanda.status}" para "${status}"${motivo ? ` — ${motivo}` : ''}`)
   res.json(atualizada)
@@ -124,6 +134,10 @@ demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
 
   const demanda = await prisma.demanda.findUnique({ where: { id: req.params.demandaId } })
   if (!demanda) throw new AppError('Demanda não encontrada', 404)
+
+  if (req.user!.role !== 'MASTER' && demanda.solicitanteId !== req.user!.id) {
+    throw new AppError('Somente quem criou a demanda (ou o Master) pode atribuir atividades', 403)
+  }
 
   const responsavel = await prisma.user.findUnique({ where: { id: responsavelId } })
   if (!responsavel || !responsavel.active) throw new AppError('Responsável inválido')
@@ -171,6 +185,29 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
     throw new AppError(`Transição inválida: "${atividade.status}" não pode ir para "${status}"`)
   }
 
+  // Autorização: apenas o responsável inicia/conclui; apenas o solicitante aprova/devolve/reabre.
+  // MASTER sempre pode agir (override administrativo).
+  const uid = req.user!.id
+  const isResponsavel = atividade.responsavelId === uid
+  const isSolicitante = atividade.solicitanteId === uid
+  const isMaster = req.user!.role === 'MASTER'
+
+  const AÇÕES_DO_RESPONSAVEL = ['EM_ANDAMENTO', 'CONCLUIDA']
+  const AÇÕES_DO_SOLICITANTE = ['APROVADA', 'DEVOLVIDA']
+
+  if (!isMaster) {
+    if (AÇÕES_DO_RESPONSAVEL.includes(status) && !isResponsavel) {
+      throw new AppError('Somente o responsável pela atividade pode executar esta ação', 403)
+    }
+    if (AÇÕES_DO_SOLICITANTE.includes(status) && !isSolicitante) {
+      throw new AppError('Somente o solicitante da atividade pode executar esta ação', 403)
+    }
+    // Cancelar: responsável ou solicitante podem
+    if (status === 'CANCELADA' && !isResponsavel && !isSolicitante) {
+      throw new AppError('Somente o responsável ou o solicitante podem cancelar esta atividade', 403)
+    }
+  }
+
   // Concluir exige justificativa quando houver passos obrigatórios pendentes
   if (status === 'CONCLUIDA') {
     const pendentes = await prisma.passoAtividade.count({ where: { atividadeId: atividade.id, concluido: false } })
@@ -210,6 +247,9 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
 demandasRouter.delete('/atividades/:id', async (req: AuthRequest, res) => {
   const atividade = await prisma.atividade.findUnique({ where: { id: req.params.id } })
   if (!atividade) throw new AppError('Atividade não encontrada', 404)
+  if (req.user!.role !== 'MASTER' && atividade.solicitanteId !== req.user!.id) {
+    throw new AppError('Somente quem criou a atividade (ou o Master) pode removê-la', 403)
+  }
   await prisma.atividade.delete({ where: { id: atividade.id } })
   await registrarHistorico(atividade.demandaId, req.user!.id, 'ATIVIDADE_REMOVIDA', `Atividade "${atividade.titulo}" removida`)
   res.json({ message: 'Atividade removida' })
@@ -217,12 +257,21 @@ demandasRouter.delete('/atividades/:id', async (req: AuthRequest, res) => {
 
 // ===== Checklist (passos da atividade) =====
 
+// Apenas responsável, solicitante da atividade ou Master podem gerenciar o checklist
+function assertPodeGerenciarChecklist(req: AuthRequest, atividade: { responsavelId: string; solicitanteId: string }) {
+  if (req.user!.role === 'MASTER') return
+  if (atividade.responsavelId !== req.user!.id && atividade.solicitanteId !== req.user!.id) {
+    throw new AppError('Somente o responsável ou o solicitante da atividade podem gerenciar o checklist', 403)
+  }
+}
+
 demandasRouter.post('/atividades/:atividadeId/passos', async (req: AuthRequest, res) => {
   const { descricao } = req.body
   if (!descricao?.trim()) throw new AppError('Descrição do passo é obrigatória')
 
   const atividade = await prisma.atividade.findUnique({ where: { id: req.params.atividadeId } })
   if (!atividade) throw new AppError('Atividade não encontrada', 404)
+  assertPodeGerenciarChecklist(req, atividade)
 
   const count = await prisma.passoAtividade.count({ where: { atividadeId: atividade.id } })
   const passo = await prisma.passoAtividade.create({
@@ -232,6 +281,10 @@ demandasRouter.post('/atividades/:atividadeId/passos', async (req: AuthRequest, 
 })
 
 demandasRouter.put('/passos/:id', async (req: AuthRequest, res) => {
+  const existente = await prisma.passoAtividade.findUnique({ where: { id: req.params.id }, include: { atividade: true } })
+  if (!existente) throw new AppError('Passo não encontrado', 404)
+  assertPodeGerenciarChecklist(req, existente.atividade)
+
   const { concluido } = req.body
   const passo = await prisma.passoAtividade.update({
     where: { id: req.params.id },
@@ -241,6 +294,10 @@ demandasRouter.put('/passos/:id', async (req: AuthRequest, res) => {
 })
 
 demandasRouter.delete('/passos/:id', async (req: AuthRequest, res) => {
+  const existente = await prisma.passoAtividade.findUnique({ where: { id: req.params.id }, include: { atividade: true } })
+  if (!existente) throw new AppError('Passo não encontrado', 404)
+  assertPodeGerenciarChecklist(req, existente.atividade)
+
   await prisma.passoAtividade.delete({ where: { id: req.params.id } })
   res.json({ message: 'Passo removido' })
 })
