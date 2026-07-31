@@ -3,8 +3,9 @@
 ## Configuração inicial recomendada
 
 1. **Criar equipes** em `/equipes`: dê o nome (ex.: "Engenharia", "Parecer Jurídico", "Patrimônio") e adicione os usuários membros.
-2. **Criar tipos de demanda** em `/tipos-demanda` (opcional, mas recomendado para processos repetitivos): defina o nome, prazo padrão em dias, e as etapas do fluxo — cada etapa vira uma atividade criada automaticamente, atribuída à equipe que você escolher.
-3. Os usuários continuam sendo gerenciados em `/usuarios` (tela já existente, sem mudanças).
+2. **Criar tipos de demanda** em `/tipos-demanda` (opcional, mas recomendado para processos repetitivos): defina o nome, prazo padrão em dias, e as etapas do fluxo. Diferente do que a primeira versão fazia, hoje **só a 1ª etapa nasce ao criar a demanda** — a 2ª só é criada quando a 1ª é aprovada, e assim por diante (dependência sequencial real, não tudo de uma vez).
+3. **(Opcional) Criar Perfis de Acesso** em `/perfis`, se quiser que algum usuário PADRAO gerencie Equipes ou Tipos de Demanda sem virar Master. Crie o perfil, marque as permissões desejadas, e atribua-o ao usuário na mesma tela. Master continua tendo acesso total, com ou sem perfil.
+4. Os usuários continuam sendo gerenciados em `/usuarios` (tela já existente, sem mudanças).
 
 ## Fluxo do dia a dia
 
@@ -12,6 +13,9 @@
 - Se não usar um tipo, crie a demanda e depois clique em **Nova Atividade** dentro dela para atribuir manualmente, a um usuário ou a uma equipe.
 - Acompanhe a **linha do tempo** (lateral direita da tela de detalhe) para ver todo o histórico.
 - Registre **pendências externas** (Seinfra, Patrimônio, Cartório) quando o andamento depender de terceiros — isso muda automaticamente o status da demanda para "Aguardando terceiro".
+- Use o botão **Lista/Kanban** no topo de `/demandas` para alternar entre a tabela e um quadro visual por status.
+- O **painel de indicadores** (topo de `/demandas`) mostra total de demandas, atrasadas, suas atividades pendentes e o que aguarda sua aprovação — atualiza sozinho a cada 60s.
+- Demandas com prazo vencido são **escalonadas automaticamente**: você (e todos os Master) recebe uma notificação uma única vez por vencimento. Editar o prazo permite um novo alerta se vencer de novo.
 
 ## Como o administrador difere do MASTER
 
@@ -36,6 +40,6 @@ Itens sem GEP completo são **rejeitados automaticamente** (a resposta lista os 
 
 ## Limitações a conhecer
 
-- Não há tela de "matriz de permissões" configurável — os papéis continuam sendo MASTER/PADRAO fixos, e a autorização dentro de uma demanda vem do vínculo (solicitante/responsável/membro de equipe).
-- O motor de fluxo gera todas as atividades do tipo de uma vez (não há dependência sequencial automática entre elas).
-- Documentos continuam sendo links do Google Drive, não upload de arquivo.
+- **Perfis de Acesso** cobrem hoje duas permissões (gerenciar Equipes, gerenciar Tipos de Demanda) — não é uma matriz granular por registro individual de demanda/atividade. Essas continuam via vínculo (solicitante/responsável/membro de equipe), que é validado no backend independentemente do perfil.
+- O motor de fluxo é sequencial (uma etapa de cada vez); não há paralelismo real, condições nem desvios configuráveis entre etapas.
+- Documentos podem ser **link do Google Drive OU upload real de arquivo** (PDF, DOC, XLS, imagem, DWG, ZIP — até 20MB, persistido no volume do Fly.io). O download de arquivo enviado exige login (não é um link público).

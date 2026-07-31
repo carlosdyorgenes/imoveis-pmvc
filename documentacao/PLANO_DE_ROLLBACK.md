@@ -14,9 +14,10 @@ Como o backend builda a partir do `main` a cada `flyctl deploy`, revertendo o c�
 
 **Importante**: como o projeto usa `prisma db push` (não migrations versionadas), não existe um comando `prisma migrate down`. O rollback de schema é feito por SQL direto, exatamente como foi feito para limpar dados de teste durante o desenvolvimento (via `flyctl ssh console` + `prisma db execute`).
 
-### Reversão completa do módulo (remove todas as tabelas novas das Fases 1 e 2)
+### Reversão completa do módulo (remove todas as tabelas novas de todas as fases, Demandas + RBAC)
 
 ```sql
+DROP TABLE IF EXISTS "comentarios" CASCADE;
 DROP TABLE IF EXISTS "notificacoes" CASCADE;
 DROP TABLE IF EXISTS "pendencias_externas" CASCADE;
 DROP TABLE IF EXISTS "documentos_atividade" CASCADE;
@@ -28,6 +29,15 @@ DROP TABLE IF EXISTS "passos_atividade" CASCADE;
 DROP TABLE IF EXISTS "historico_demandas" CASCADE;
 DROP TABLE IF EXISTS "atividades" CASCADE;
 DROP TABLE IF EXISTS "demandas" CASCADE;
+-- RBAC dinâmico: remove a tabela de perfis e a coluna que a referencia em users
+DROP TABLE IF EXISTS "perfis" CASCADE;
+ALTER TABLE "users" DROP COLUMN IF EXISTS "perfilId";
+```
+
+Isso também remove implicitamente as colunas adicionadas em `atividades` (`equipeId`, `modeloEtapaId`) e `demandas` (`tipoDemandaId`, `escalonado`), já que a tabela inteira é apagada. `documentos_atividade` (com `arquivoPath`/`arquivoMime`/`arquivoTamanho`) some junto — **lembre de apagar também os arquivos físicos** em `backend/uploads/documentos/` no volume do Fly.io, já que o rollback de schema não apaga arquivos em disco:
+
+```bash
+flyctl ssh console --app imoveis-pmvc-api --command "rm -rf /app/uploads/documentos/*"
 ```
 
 Executar via:

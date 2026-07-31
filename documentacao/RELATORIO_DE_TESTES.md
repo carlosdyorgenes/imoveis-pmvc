@@ -18,7 +18,14 @@ O projeto não tinha nenhum framework de teste configurado antes deste módulo. 
 - GEPs duplicados no documento de referência (linha 10 "Janete" e linha 11 "Homero", ambos GEP 51823/2023) estão sinalizados nos dois lados
 - Nenhum item importável está sem assunto
 
-**Resultado**: 2 arquivos de teste, 13 testes, todos passando (`vitest run`, ~250ms).
+`backend/src/middleware/auth.test.ts` — 5 testes (adicionados na entrega de RBAC dinâmico):
+- MASTER libera mesmo sem a permissão explícita
+- PADRAO com a permissão concedida pelo perfil é liberado
+- PADRAO sem a permissão exigida é bloqueado
+- PADRAO sem nenhum perfil atribuído é bloqueado
+- Uma permissão não vaza para outra chave (ex.: perfil só com `equipes.gerenciar` não libera `tipos_demanda.gerenciar`)
+
+**Resultado**: 3 arquivos de teste, 18 testes, todos passando (`vitest run`, ~250-430ms).
 
 ## Validação funcional em produção (executada nesta sessão, dados de teste sempre removidos ao final)
 
@@ -54,6 +61,59 @@ O projeto não tinha nenhum framework de teste configurado antes deste módulo. 
 | Anexar o mesmo nome de documento duas vezes na mesma atividade | v1, depois v2 (versionamento incrementando corretamente) |
 | Endpoints novos (`/equipes`, `/tipos-demanda`, `/notificacoes/count`, `/demandas/importar/preview`) | Todos respondendo em produção |
 
-## O que não foi testado (limitação assumida)
+### Fase 3 — Comentários, prazos/atraso, relatórios, filtros
+| Cenário | Resultado |
+|---|---|
+| Comentar na demanda | 201, texto correto |
+| Relatório de Demandas (PDF) | 200, 1593 bytes |
+| Relatório de Demandas (Excel) | 200, 6729 bytes |
+| Relatório de Demandas Atrasadas (PDF) | 200 |
+| Filtro `atrasadas=true` | Retornou só as demandas com prazo vencido |
 
-Testes de interface (Playwright/Cypress) não foram criados — a validação de UI foi feita via typecheck (`tsc --noEmit`, zero erros nas duas fases) e inspeção do preview local para as telas novas (renderização sem erro de console). Não há teste de carga, nem teste de concorrência (duas pessoas agindo na mesma atividade ao mesmo tempo).
+### Fase 4 — Documentos versionados, upload real, painel
+| Cenário | Resultado |
+|---|---|
+| Upload real de arquivo (multipart) | 201, arquivo salvo no volume persistente do Fly.io |
+| Download sem token | 401 — bloqueado |
+| Download com token | 200, `Content-Disposition` com o nome original correto |
+| Excluir documento | Remove o registro **e** o arquivo físico (confirmado com 404 ao tentar baixar depois) |
+| Painel de indicadores (`/painel/resumo`) | Contadores corretos (total, atrasadas, minhas pendentes, aguardando aprovação) |
+
+### Fase 5 — Escalonamento de prazo, Kanban
+| Cenário | Resultado |
+|---|---|
+| Demanda com prazo vencido, `GET /demandas` chamado | Notificação criada para solicitante + todos os MASTER |
+| Chamar de novo (idempotência) | Não duplicou — só 1 evento de escalonamento no histórico |
+| Editar o prazo | `escalonado` volta a `false` (novo alerta habilitado) |
+
+### Motor de fluxo sequencial (após Fase 5)
+| Cenário | Resultado |
+|---|---|
+| Criar tipo com 3 etapas, criar demanda | Só "Etapa A" nasceu |
+| Aprovar "Etapa A" | "Etapa B" nasceu sozinha |
+| Aprovar "Etapa B" | "Etapa C" nasceu sozinha |
+| Aprovar "Etapa C" (última) | Demanda foi para `CONCLUIDA` automaticamente |
+| Histórico | Exatamente 3 eventos de criação de atividade — sem duplicação |
+
+### RBAC dinâmico (Perfis)
+| Cenário | Resultado |
+|---|---|
+| MASTER acessa `/equipes` e cria equipe | 200 / 201 — sem regressão |
+| Usuário PADRAO real, sem perfil, tenta criar equipe | 403 com mensagem indicando a permissão exigida |
+| Cria perfil com `equipes.gerenciar`, atribui ao usuário | 200 |
+| Mesmo usuário, agora com perfil, cria equipe | 201 |
+| Mesmo usuário tenta gerenciar Tipos de Demanda (permissão não concedida) | 403 — a permissão não vazou entre módulos |
+| MASTER continua criando Tipos de Demanda | 201 — sem regressão |
+
+## Testes de interface automatizados (Playwright)
+
+Ao contrário do que uma versão anterior deste relatório registrava, **testes E2E foram implementados e validados rodando de verdade** (`frontend/e2e/`, `npx playwright test`):
+
+- **Suíte**: `demandas.spec.ts` — login, criar demanda com GEP, aviso de GEP duplicado sem bloquear, comentar na demanda
+- **Onde rodam**: contra o **site real em produção** (`https://imoveis-pmvc.vercel.app`), não um mock — descoberto durante a implementação que `localhost` não autentica contra a API por causa do CORS (que só libera o domínio do Vercel), então os testes foram direcionados para lá em vez de enfraquecer essa política de segurança
+- **Autolimpeza real**: os testes criam demandas com prefixo `E2E` no GEP e as removem via `DELETE /api/demandas/:id` (rota criada nesta mesma entrega) ao final de cada teste
+- **Resultado final**: 4 de 4 testes passando (`npx playwright test`, ~1 minuto)
+
+## O que ainda não foi testado (limitação assumida)
+
+Teste de carga e teste de concorrência real (duas pessoas agindo na mesma atividade ao mesmo tempo) não foram feitos. Os testes E2E cobrem o caminho principal do módulo de Demandas — não há cobertura E2E para Imóveis/Ocorrências/Tarefas (módulos pré-existentes, fora do escopo desta entrega).

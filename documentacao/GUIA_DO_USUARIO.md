@@ -10,7 +10,7 @@ Quando alguém te atribui uma atividade (a você diretamente, ou a uma equipe da
 2. Leia as **instruções** (se houver).
 3. Clique em **Iniciar atividade**.
 4. Marque os itens do **checklist** conforme for cumprindo (você pode adicionar novos itens se perceber que falta algo).
-5. Anexe **documentos** (link do Google Drive) — se reenviar um documento com o mesmo nome, o sistema mantém como uma nova versão, não apaga a anterior.
+5. Anexe **documentos** — pode ser um **link do Google Drive** ou um **arquivo enviado de verdade** (PDF, DOC, XLS, imagem, DWG, ZIP, até 20MB). Se reenviar um documento com o mesmo nome, o sistema mantém como uma nova versão, não apaga a anterior. Arquivos enviados só podem ser baixados por quem está logado no sistema.
 6. Quando terminar, clique em **Concluir e devolver ao solicitante**. Se ainda houver itens do checklist pendentes, o sistema vai pedir uma justificativa antes de deixar concluir.
 
 ## O que acontece depois de concluir
@@ -26,6 +26,9 @@ Você pode:
 - Acompanhar o progresso pela **linha do tempo** da demanda (mostra cada evento: criação, atribuição, início, conclusão, aprovação/devolução).
 - Registrar **pendências externas** quando o andamento depender de outro setor ou do cartório.
 - Mudar o status geral da demanda (ex.: aguardando terceiro, concluída).
+- **Comentar** na demanda — use `@Nome` para mencionar um colega; ele recebe uma notificação.
+- Se a demanda usa um **tipo de demanda** com modelo de fluxo, a próxima etapa nasce sozinha assim que a etapa atual é aprovada — você não precisa criar cada atividade manualmente.
+- Demandas com prazo vencido aparecem marcadas como "Atrasada" na lista, no Kanban e no topo do detalhe da demanda.
 
 ## Perguntas comuns
 
