@@ -122,6 +122,7 @@ model Demanda {
   interessado   String?
   status        StatusDemanda @default(ABERTA)
   prazo         DateTime?
+  escalonado    Boolean       @default(false)
   solicitanteId String
   tipoDemandaId String?
   createdAt     DateTime      @default(now())

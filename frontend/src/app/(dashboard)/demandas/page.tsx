@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Demanda, StatusDemanda, TipoDemanda } from '@/types'
 import Link from 'next/link'
-import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox } from 'lucide-react'
+import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox, List, Columns3 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -52,6 +52,7 @@ export default function DemandasPage() {
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroTipo, setFiltroTipo] = useState('')
   const [somenteAtrasadas, setSomenteAtrasadas] = useState(false)
+  const [visualizacao, setVisualizacao] = useState<'lista' | 'kanban'>('lista')
 
   const { data: demandas = [], isLoading } = useQuery<Demanda[]>({
     queryKey: ['demandas', gepBusca, filtroStatus, filtroTipo, somenteAtrasadas],
@@ -172,9 +173,49 @@ export default function DemandasPage() {
           >
             <AlertTriangle className="w-3.5 h-3.5" /> Só atrasadas
           </button>
+          <div className="flex border border-gray-200 rounded-lg overflow-hidden flex-shrink-0">
+            <button onClick={() => setVisualizacao('lista')} className={`px-2.5 py-2 ${visualizacao === 'lista' ? 'bg-primary-50 text-primary-700' : 'text-gray-400'}`} title="Lista">
+              <List className="w-4 h-4" />
+            </button>
+            <button onClick={() => setVisualizacao('kanban')} className={`px-2.5 py-2 border-l border-gray-200 ${visualizacao === 'kanban' ? 'bg-primary-50 text-primary-700' : 'text-gray-400'}`} title="Kanban">
+              <Columns3 className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
+      {visualizacao === 'kanban' ? (
+        <div className="flex gap-3 overflow-x-auto pb-2">
+          {(Object.keys(STATUS_LABEL) as StatusDemanda[]).map(status => {
+            const itens = demandas.filter(d => d.status === status)
+            return (
+              <div key={status} className="flex-shrink-0 w-64 bg-gray-50 rounded-xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold text-gray-700">{STATUS_LABEL[status]}</h3>
+                  <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full">{itens.length}</span>
+                </div>
+                <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                  {itens.map(d => {
+                    const atrasada = d.prazo && new Date(d.prazo) < new Date() && !['CONCLUIDA', 'CANCELADA'].includes(d.status)
+                    return (
+                      <Link key={d.id} href={`/demandas/${d.id}`} className={`block bg-white rounded-lg p-3 border shadow-sm hover:shadow transition-shadow ${atrasada ? 'border-red-300' : 'border-gray-200'}`}>
+                        <p className="font-mono text-xs font-semibold text-primary-700">{d.gepNumero}/{d.gepAno}</p>
+                        <p className="text-xs text-gray-700 mt-1 line-clamp-2">{d.assunto}</p>
+                        {d.interessado && <p className="text-[10px] text-gray-400 mt-0.5">{d.interessado}</p>}
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-[10px] text-gray-400">{d.atividades?.length || 0} atividade(s)</span>
+                          {atrasada && <span className="text-[10px] text-red-600 flex items-center gap-0.5"><AlertTriangle className="w-2.5 h-2.5" /> atrasada</span>}
+                        </div>
+                      </Link>
+                    )
+                  })}
+                  {itens.length === 0 && <p className="text-xs text-gray-300 text-center py-4">Vazio</p>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
       <div className="card p-0 overflow-hidden">
         {isLoading ? (
           <div className="p-8 text-center text-gray-400">Carregando...</div>
@@ -233,6 +274,7 @@ export default function DemandasPage() {
           </div>
         )}
       </div>
+      )}
 
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

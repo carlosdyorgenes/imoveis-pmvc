@@ -330,8 +330,11 @@ export function Sidebar() {
                   {notificacoes.map(n => (
                     <button
                       key={n.id}
-                      onClick={() => !n.lida && marcarLida.mutate(n.id)}
-                      className={`w-full text-left p-3 rounded-lg border transition-colors ${n.lida ? 'bg-white border-gray-100' : 'bg-primary-50 border-primary-200'}`}
+                      onClick={() => {
+                        if (!n.lida) marcarLida.mutate(n.id)
+                        if (n.demandaId) { setShowNotificacoes(false); router.push(`/demandas/${n.demandaId}`) }
+                      }}
+                      className={`w-full text-left p-3 rounded-lg border transition-colors ${n.lida ? 'bg-white border-gray-100' : 'bg-primary-50 border-primary-200'} ${n.demandaId ? 'hover:border-primary-300' : ''}`}
                     >
                       <p className={`text-sm ${n.lida ? 'text-gray-600' : 'text-gray-800 font-medium'}`}>{n.mensagem}</p>
                       <p className="text-xs text-gray-400 mt-1">{format(new Date(n.createdAt), "dd/MM/yy HH:mm", { locale: ptBR })}</p>

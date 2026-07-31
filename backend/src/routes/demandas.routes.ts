@@ -88,9 +88,34 @@ async function notificarResponsaveis(atividade: { id: string; responsavelId: str
   }
 }
 
+// Escalonamento de prazo: sem infraestrutura de cron neste projeto, então roda de forma
+// "preguiçosa" nas rotas mais acessadas (lista e painel), que o frontend já consulta a
+// cada 60s. Notifica o solicitante e todos os MASTER (papel que atua como gestor) quando
+// uma demanda vence o prazo, uma única vez por demanda (campo `escalonado`).
+async function escalonarPrazosVencidos() {
+  const vencidas = await prisma.demanda.findMany({
+    where: { prazo: { lt: new Date() }, escalonado: false, status: { notIn: ['CONCLUIDA', 'CANCELADA'] } },
+    select: { id: true, gepNumero: true, gepAno: true, assunto: true, solicitanteId: true },
+  })
+  if (vencidas.length === 0) return
+
+  const masters = await prisma.user.findMany({ where: { role: 'MASTER', active: true }, select: { id: true } })
+
+  for (const d of vencidas) {
+    const gep = `${d.gepNumero}/${d.gepAno}`
+    const destinatarios = new Set([d.solicitanteId, ...masters.map(m => m.id)])
+    for (const userId of destinatarios) {
+      await notificar(userId, 'PRAZO_VENCIDO', `Prazo vencido: demanda "${d.assunto}" (GEP ${gep})`, { demandaId: d.id })
+    }
+    await registrarHistorico(d.id, d.solicitanteId, 'ESCALONAMENTO', `Prazo vencido — administradores notificados automaticamente`)
+    await prisma.demanda.update({ where: { id: d.id }, data: { escalonado: true } })
+  }
+}
+
 // ===== Painel de indicadores =====
 
 demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
+  await escalonarPrazosVencidos()
   const uid = req.user!.id
 
   const [porStatus, totalAtrasadas, minhasEquipes] = await Promise.all([
@@ -126,6 +151,7 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
 // ===== Demandas =====
 
 demandasRouter.get('/', async (req, res) => {
+  await escalonarPrazosVencidos()
   const { status, gep, tipoDemandaId, responsavelId, atrasadas } = req.query as Record<string, string>
   const where: Record<string, unknown> = {}
   if (status) where.status = status
@@ -229,9 +255,14 @@ demandasRouter.put('/:id', async (req: AuthRequest, res) => {
   }
 
   const { assunto, descricao, interessado, prazo } = req.body
+  const novoPrazo = prazo ? new Date(prazo) : null
+  const prazoMudou = String(existente.prazo) !== String(novoPrazo)
   const demanda = await prisma.demanda.update({
     where: { id: req.params.id },
-    data: { assunto, descricao, interessado, prazo: prazo ? new Date(prazo) : null },
+    data: {
+      assunto, descricao, interessado, prazo: novoPrazo,
+      ...(prazoMudou ? { escalonado: false } : {}),
+    },
   })
   await registrarHistorico(demanda.id, req.user!.id, 'EDICAO', 'Dados da demanda atualizados')
   res.json(demanda)
