@@ -25,6 +25,10 @@ const DEMANDA_INCLUDE = {
   },
   historico: { orderBy: { createdAt: 'desc' as const } },
   pendenciasExternas: { orderBy: { createdAt: 'desc' as const } },
+  comentarios: {
+    include: { user: { select: { id: true, name: true } } },
+    orderBy: { createdAt: 'asc' as const },
+  },
 }
 
 async function registrarHistorico(demandaId: string, userId: string, acao: string, descricao: string) {
@@ -59,10 +63,18 @@ async function notificarResponsaveis(atividade: { id: string; responsavelId: str
 // ===== Demandas =====
 
 demandasRouter.get('/', async (req, res) => {
-  const { status, gep } = req.query as Record<string, string>
+  const { status, gep, tipoDemandaId, responsavelId, atrasadas } = req.query as Record<string, string>
   const where: Record<string, unknown> = {}
   if (status) where.status = status
   if (gep) where.gepNumero = { contains: gep, mode: 'insensitive' }
+  if (tipoDemandaId) where.tipoDemandaId = tipoDemandaId
+  if (atrasadas === 'true') {
+    where.prazo = { lt: new Date() }
+    where.status = { notIn: ['CONCLUIDA', 'CANCELADA'] }
+  }
+  if (responsavelId) {
+    where.atividades = { some: { OR: [{ responsavelId }, { equipe: { membros: { some: { userId: responsavelId } } } }] } }
+  }
 
   const demandas = await prisma.demanda.findMany({
     where,
@@ -442,6 +454,49 @@ demandasRouter.put('/pendencias/:id', async (req: AuthRequest, res) => {
 demandasRouter.delete('/pendencias/:id', async (req: AuthRequest, res) => {
   await prisma.pendenciaExterna.delete({ where: { id: req.params.id } })
   res.json({ message: 'Pendência removida' })
+})
+
+// ===== Comentários (com menção simples @Nome) =====
+
+demandasRouter.post('/:demandaId/comentarios', async (req: AuthRequest, res) => {
+  const { texto } = req.body
+  if (!texto?.trim()) throw new AppError('Comentário não pode ser vazio')
+
+  const demanda = await prisma.demanda.findUnique({ where: { id: req.params.demandaId } })
+  if (!demanda) throw new AppError('Demanda não encontrada', 404)
+
+  const comentario = await prisma.comentario.create({
+    data: { demandaId: demanda.id, userId: req.user!.id, texto: texto.trim() },
+    include: { user: { select: { id: true, name: true } } },
+  })
+
+  await registrarHistorico(demanda.id, req.user!.id, 'COMENTARIO', `${comentario.user.name} comentou: "${texto.trim().slice(0, 80)}${texto.length > 80 ? '...' : ''}"`)
+
+  // Menção simples: @Nome (ou parte do nome) dispara notificação para o usuário mencionado
+  const mencoes = [...texto.matchAll(/@([\wÀ-ÿ]+(?:\s[\wÀ-ÿ]+)?)/g)].map(m => m[1])
+  if (mencoes.length > 0) {
+    const usuarios = await prisma.user.findMany({ where: { active: true } })
+    const mencionados = new Set<string>()
+    for (const nome of mencoes) {
+      const encontrado = usuarios.find(u => u.name.toLowerCase().includes(nome.toLowerCase()) && u.id !== req.user!.id)
+      if (encontrado) mencionados.add(encontrado.id)
+    }
+    for (const userId of mencionados) {
+      await notificar(userId, 'MENCAO_COMENTARIO', `${comentario.user.name} mencionou você em um comentário (GEP ${demanda.gepNumero}/${demanda.gepAno})`, { demandaId: demanda.id })
+    }
+  }
+
+  res.status(201).json(comentario)
+})
+
+demandasRouter.delete('/comentarios/:id', async (req: AuthRequest, res) => {
+  const comentario = await prisma.comentario.findUnique({ where: { id: req.params.id } })
+  if (!comentario) throw new AppError('Comentário não encontrado', 404)
+  if (req.user!.role !== 'MASTER' && comentario.userId !== req.user!.id) {
+    throw new AppError('Somente quem escreveu o comentário (ou o Master) pode removê-lo', 403)
+  }
+  await prisma.comentario.delete({ where: { id: comentario.id } })
+  res.json({ message: 'Comentário removido' })
 })
 
 // ===== Importador assistido do DOCX de pendências antigas =====

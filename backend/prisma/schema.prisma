@@ -50,8 +50,23 @@ model User {
   atividadesCriadas      Atividade[]        @relation("AtividadeSolicitante")
   equipeMembros          EquipeMembro[]
   notificacoes           Notificacao[]
+  comentarios            Comentario[]
 
   @@map("users")
+}
+
+model Comentario {
+  id          String   @id @default(uuid())
+  demandaId   String
+  atividadeId String?
+  userId      String
+  texto       String
+  createdAt   DateTime @default(now())
+
+  demanda Demanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@map("comentarios")
 }
 
 model Equipe {
@@ -117,6 +132,7 @@ model Demanda {
   atividades         Atividade[]
   historico          HistoricoDemanda[]
   pendenciasExternas PendenciaExterna[]
+  comentarios        Comentario[]
 
   @@index([gepNumero, gepAno])
   @@map("demandas")

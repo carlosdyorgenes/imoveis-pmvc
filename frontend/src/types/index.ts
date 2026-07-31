@@ -209,6 +209,15 @@ export interface HistoricoDemanda {
   createdAt: string
 }
 
+export interface Comentario {
+  id: string
+  demandaId: string
+  userId: string
+  texto: string
+  createdAt: string
+  user: { id: string; name: string }
+}
+
 export interface Demanda {
   id: string
   gepNumero: string
@@ -224,6 +233,7 @@ export interface Demanda {
   atividades: Atividade[]
   historico?: HistoricoDemanda[]
   pendenciasExternas?: PendenciaExterna[]
+  comentarios?: Comentario[]
 }
 
 export interface Log {

@@ -4,10 +4,19 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Demanda, StatusDemanda, TipoDemanda } from '@/types'
 import Link from 'next/link'
-import { Plus, Search, X, FileStack } from 'lucide-react'
+import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 const errMsg = (err: any, fallback: string) => err?.response?.data?.error || fallback
 
@@ -40,15 +49,38 @@ export default function DemandasPage() {
   const [descricao, setDescricao] = useState('')
   const [tipoDemandaId, setTipoDemandaId] = useState('')
 
+  const [filtroStatus, setFiltroStatus] = useState('')
+  const [filtroTipo, setFiltroTipo] = useState('')
+  const [somenteAtrasadas, setSomenteAtrasadas] = useState(false)
+
   const { data: demandas = [], isLoading } = useQuery<Demanda[]>({
-    queryKey: ['demandas', gepBusca],
-    queryFn: () => api.get('/api/demandas', { params: gepBusca ? { gep: gepBusca } : {} }).then(r => r.data),
+    queryKey: ['demandas', gepBusca, filtroStatus, filtroTipo, somenteAtrasadas],
+    queryFn: () => api.get('/api/demandas', {
+      params: {
+        ...(gepBusca ? { gep: gepBusca } : {}),
+        ...(filtroStatus ? { status: filtroStatus } : {}),
+        ...(filtroTipo ? { tipoDemandaId: filtroTipo } : {}),
+        ...(somenteAtrasadas ? { atrasadas: 'true' } : {}),
+      },
+    }).then(r => r.data),
   })
 
   const { data: tiposDemanda = [] } = useQuery<TipoDemanda[]>({
     queryKey: ['tipos-demanda'],
     queryFn: () => api.get('/api/tipos-demanda').then(r => r.data),
   })
+
+  const baixarRelatorio = async (formato: 'pdf' | 'excel') => {
+    try {
+      const res = await api.get(`/api/relatorios/demandas/${formato}`, {
+        params: { ...(filtroStatus ? { status: filtroStatus } : {}), ...(filtroTipo ? { tipoDemandaId: filtroTipo } : {}) },
+        responseType: 'blob',
+      })
+      downloadBlob(res.data, `relatorio_demandas.${formato === 'pdf' ? 'pdf' : 'xlsx'}`)
+    } catch {
+      toast.error('Erro ao gerar relatório')
+    }
+  }
 
   const createMutation = useMutation({
     mutationFn: () => api.post('/api/demandas', { gepNumero, gepAno, assunto, interessado, descricao, tipoDemandaId: tipoDemandaId || undefined }),
@@ -69,20 +101,44 @@ export default function DemandasPage() {
           <h1 className="text-2xl font-bold text-gray-900">Demandas</h1>
           <p className="text-gray-500 text-sm">Processos de regularização por GEP</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="btn-primary">
-          <Plus className="w-4 h-4" /> Nova Demanda
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => baixarRelatorio('pdf')} className="btn-secondary text-xs">
+            <Download className="w-3.5 h-3.5" /> PDF
+          </button>
+          <button onClick={() => baixarRelatorio('excel')} className="btn-secondary text-xs">
+            <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
+          </button>
+          <button onClick={() => setShowModal(true)} className="btn-primary">
+            <Plus className="w-4 h-4" /> Nova Demanda
+          </button>
+        </div>
       </div>
 
       <div className="card mb-4 py-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-          <input
-            className="input pl-9"
-            placeholder="Buscar por número do GEP..."
-            value={gepBusca}
-            onChange={e => setGepBusca(e.target.value)}
-          />
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+            <input
+              className="input pl-9"
+              placeholder="Buscar por número do GEP..."
+              value={gepBusca}
+              onChange={e => setGepBusca(e.target.value)}
+            />
+          </div>
+          <select className="input sm:w-44" value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
+            <option value="">Todos os status</option>
+            {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <select className="input sm:w-44" value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
+            <option value="">Todos os tipos</option>
+            {tiposDemanda.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+          </select>
+          <button
+            onClick={() => setSomenteAtrasadas(v => !v)}
+            className={`text-xs px-3 py-2 rounded-lg border flex items-center gap-1.5 whitespace-nowrap ${somenteAtrasadas ? 'bg-red-50 border-red-300 text-red-700' : 'border-gray-200 text-gray-500'}`}
+          >
+            <AlertTriangle className="w-3.5 h-3.5" /> Só atrasadas
+          </button>
         </div>
       </div>
 
@@ -127,6 +183,11 @@ export default function DemandasPage() {
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[d.status]}`}>
                         {STATUS_LABEL[d.status]}
                       </span>
+                      {d.prazo && new Date(d.prazo) < new Date() && !['CONCLUIDA', 'CANCELADA'].includes(d.status) && (
+                        <span className="block mt-1 text-[10px] text-red-600 flex items-center gap-1">
+                          <AlertTriangle className="w-2.5 h-2.5" /> Atrasada
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-xs text-gray-500 align-top">{d.atividades?.length || 0}</td>
                     <td className="px-3 py-2 text-xs text-gray-400 align-top">

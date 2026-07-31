@@ -296,3 +296,117 @@ relatoriosRouter.get('/resumo/pdf', async (req: AuthRequest, res: Response) => {
 
   doc.end()
 })
+
+// ---- Demandas: dados comuns ----
+const DEMANDAS_REPORT_INCLUDE = {
+  solicitante: { select: { name: true } },
+  tipoDemanda: { select: { nome: true } },
+  atividades: {
+    select: {
+      titulo: true, status: true, prazo: true,
+      responsavel: { select: { name: true } },
+      equipe: { select: { nome: true } },
+    },
+  },
+}
+
+async function buscarDemandasRelatorio(query: Record<string, string>) {
+  const where: Record<string, unknown> = {}
+  if (query.status) where.status = query.status
+  if (query.tipoDemandaId) where.tipoDemandaId = query.tipoDemandaId
+  return prisma.demanda.findMany({ where, include: DEMANDAS_REPORT_INCLUDE, orderBy: { createdAt: 'desc' } })
+}
+
+const atrasada = (prazo: Date | null) => !!prazo && new Date(prazo) < new Date()
+
+// ---- Demandas PDF ----
+relatoriosRouter.get('/demandas/pdf', async (req: AuthRequest, res: Response) => {
+  const demandas = await buscarDemandasRelatorio(req.query as Record<string, string>)
+
+  const doc = new PDFDocument({ margin: 40 })
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', 'attachment; filename=relatorio_demandas.pdf')
+  doc.pipe(res)
+
+  doc.fontSize(16).text('Relatório de Demandas - PMVC', { align: 'center' })
+  doc.fontSize(10).text(`Gerado em: ${formatDate(new Date())}`, { align: 'center' })
+  doc.moveDown()
+
+  demandas.forEach(d => {
+    const atraso = atrasada(d.prazo)
+    doc.fontSize(11).fillColor(atraso ? '#dc2626' : '#1e40af')
+      .text(`GEP ${d.gepNumero}/${d.gepAno} — ${d.assunto}${atraso ? ' [ATRASADA]' : ''}`)
+    doc.fillColor('#000000').fontSize(9)
+      .text(`  Status: ${d.status} | Tipo: ${d.tipoDemanda?.nome || '—'} | Solicitante: ${d.solicitante.name}${d.prazo ? ` | Prazo: ${formatDate(d.prazo)}` : ''}`)
+    d.atividades.forEach(a => {
+      doc.text(`    • ${a.titulo} [${a.status}] — ${a.equipe ? `Equipe: ${a.equipe.nome}` : `Resp: ${a.responsavel?.name || '—'}`}`)
+    })
+    doc.moveDown(0.5)
+  })
+
+  doc.end()
+})
+
+// ---- Demandas Excel ----
+relatoriosRouter.get('/demandas/excel', async (req: AuthRequest, res: Response) => {
+  const demandas = await buscarDemandasRelatorio(req.query as Record<string, string>)
+
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('Demandas')
+  ws.columns = [
+    { header: 'GEP', key: 'gep', width: 16 },
+    { header: 'Assunto', key: 'assunto', width: 35 },
+    { header: 'Tipo', key: 'tipo', width: 20 },
+    { header: 'Status', key: 'status', width: 18 },
+    { header: 'Solicitante', key: 'solicitante', width: 20 },
+    { header: 'Prazo', key: 'prazo', width: 18 },
+    { header: 'Atrasada', key: 'atrasada', width: 10 },
+    { header: 'Atividades', key: 'atividades', width: 12 },
+  ]
+  ws.getRow(1).font = { bold: true }
+  demandas.forEach(d => {
+    ws.addRow({
+      gep: `${d.gepNumero}/${d.gepAno}`,
+      assunto: d.assunto,
+      tipo: d.tipoDemanda?.nome || '',
+      status: d.status,
+      solicitante: d.solicitante.name,
+      prazo: d.prazo ? formatDate(d.prazo) : '',
+      atrasada: atrasada(d.prazo) ? 'SIM' : 'NÃO',
+      atividades: d.atividades.length,
+    })
+  })
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  res.setHeader('Content-Disposition', 'attachment; filename=relatorio_demandas.xlsx')
+  await wb.xlsx.write(res)
+})
+
+// ---- Demandas atrasadas (PDF) — atalho gerencial ----
+relatoriosRouter.get('/demandas/atrasadas/pdf', async (req: AuthRequest, res: Response) => {
+  const demandas = await prisma.demanda.findMany({
+    where: { prazo: { lt: new Date() }, status: { notIn: ['CONCLUIDA', 'CANCELADA'] } },
+    include: DEMANDAS_REPORT_INCLUDE,
+    orderBy: { prazo: 'asc' },
+  })
+
+  const doc = new PDFDocument({ margin: 40 })
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', 'attachment; filename=relatorio_demandas_atrasadas.pdf')
+  doc.pipe(res)
+
+  doc.fontSize(16).fillColor('#dc2626').text('Demandas Atrasadas - PMVC', { align: 'center' })
+  doc.fillColor('#000000').fontSize(10).text(`Gerado em: ${formatDate(new Date())}`, { align: 'center' })
+  doc.moveDown()
+
+  if (demandas.length === 0) {
+    doc.fontSize(12).text('Nenhuma demanda atrasada no momento.', { align: 'center' })
+  }
+  demandas.forEach(d => {
+    doc.fontSize(11).text(`GEP ${d.gepNumero}/${d.gepAno} — ${d.assunto}`)
+    doc.fontSize(9).text(`  Prazo vencido em: ${formatDate(d.prazo!)} | Status: ${d.status} | Solicitante: ${d.solicitante.name}`)
+    doc.moveDown(0.3)
+  })
+
+  doc.end()
+})

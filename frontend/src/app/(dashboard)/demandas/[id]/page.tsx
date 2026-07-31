@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Demanda, Atividade, StatusAtividade, User, Equipe } from '@/types'
 import Link from 'next/link'
-import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2 } from 'lucide-react'
+import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, MessageSquare, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -53,6 +53,8 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [pOrgao, setPOrgao] = useState('')
   const [pDescricao, setPDescricao] = useState('')
   const [pProtocolo, setPProtocolo] = useState('')
+
+  const [novoComentario, setNovoComentario] = useState('')
 
   const { data: demanda, isLoading } = useQuery<Demanda>({
     queryKey: ['demanda', id],
@@ -128,6 +130,18 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao atualizar pendência'))
   })
 
+  const addComentario = useMutation({
+    mutationFn: () => api.post(`/api/demandas/${id}/comentarios`, { texto: novoComentario }),
+    onSuccess: () => { invalidar(); setNovoComentario('') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao comentar'))
+  })
+
+  const deleteComentario = useMutation({
+    mutationFn: (comentarioId: string) => api.delete(`/api/demandas/comentarios/${comentarioId}`),
+    onSuccess: invalidar,
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao remover comentário'))
+  })
+
   if (isLoading) return <div className="p-8 text-center text-gray-400">Carregando...</div>
   if (!demanda) return <div className="p-8 text-center text-gray-400">Demanda não encontrada</div>
 
@@ -145,10 +159,18 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
           <ArrowLeft className="w-5 h-5 text-gray-600" />
         </Link>
         <div>
-          <h1 className="text-xl font-bold text-gray-900 font-mono">GEP {demanda.gepNumero}/{demanda.gepAno}</h1>
+          <h1 className="text-xl font-bold text-gray-900 font-mono flex items-center gap-2">
+            GEP {demanda.gepNumero}/{demanda.gepAno}
+            {demanda.prazo && new Date(demanda.prazo) < new Date() && !['CONCLUIDA', 'CANCELADA'].includes(demanda.status) && (
+              <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-sans font-medium flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" /> Atrasada
+              </span>
+            )}
+          </h1>
           <p className="text-gray-500 text-sm">
             {demanda.assunto}{demanda.interessado ? ` — ${demanda.interessado}` : ''}
             {demanda.tipoDemanda && <span className="ml-2 text-xs bg-primary-50 text-primary-700 px-2 py-0.5 rounded-full">{demanda.tipoDemanda.nome}</span>}
+            {demanda.prazo && <span className="ml-2 text-xs text-gray-400">Prazo: {format(new Date(demanda.prazo), 'dd/MM/yy', { locale: ptBR })}</span>}
           </p>
         </div>
       </div>
@@ -314,6 +336,49 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               ))}
               {(!demanda.historico || demanda.historico.length === 0) && (
                 <p className="text-xs text-gray-400 text-center py-4">Sem eventos registrados</p>
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <h3 className="font-semibold text-sm text-gray-800 mb-2 flex items-center gap-1.5">
+              <MessageSquare className="w-4 h-4 text-primary-600" /> Comentários
+            </h3>
+            <div className="flex gap-2 mb-3">
+              <input
+                className="input text-sm flex-1"
+                placeholder="Escreva um comentário... use @Nome para mencionar"
+                value={novoComentario}
+                onChange={e => setNovoComentario(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && novoComentario.trim() && addComentario.mutate()}
+              />
+              <button
+                onClick={() => novoComentario.trim() && addComentario.mutate()}
+                disabled={!novoComentario.trim() || addComentario.isPending}
+                className="btn-primary text-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {(demanda.comentarios || []).map(c => (
+                <div key={c.id} className="bg-gray-50 rounded-lg p-2.5 group">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-medium text-gray-700">{c.user.name}</p>
+                      <p className="text-sm text-gray-600 mt-0.5">{c.texto}</p>
+                    </div>
+                    {(isMaster || c.userId === user?.id) && (
+                      <button onClick={() => deleteComentario.mutate(c.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 flex-shrink-0">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">{format(new Date(c.createdAt), "dd/MM/yy HH:mm", { locale: ptBR })}</p>
+                </div>
+              ))}
+              {(!demanda.comentarios || demanda.comentarios.length === 0) && (
+                <p className="text-xs text-gray-400 text-center py-3">Nenhum comentário ainda</p>
               )}
             </div>
           </div>
