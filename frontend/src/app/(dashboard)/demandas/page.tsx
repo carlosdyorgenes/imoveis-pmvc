@@ -4,10 +4,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Demanda, StatusDemanda, TipoDemanda } from '@/types'
 import Link from 'next/link'
-import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox, List, Columns3 } from 'lucide-react'
+import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox, List, Columns3, FileUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { useAuth } from '@/hooks/useAuth'
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -40,6 +41,7 @@ const STATUS_COLOR: Record<StatusDemanda, string> = {
 
 export default function DemandasPage() {
   const qc = useQueryClient()
+  const { isMaster } = useAuth()
   const [gepBusca, setGepBusca] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [gepNumero, setGepNumero] = useState('')
@@ -121,6 +123,11 @@ export default function DemandasPage() {
           <button onClick={() => baixarRelatorio('excel')} className="btn-secondary text-xs">
             <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
           </button>
+          {isMaster && (
+            <Link href="/demandas/importar" className="btn-secondary text-xs">
+              <FileUp className="w-3.5 h-3.5" /> Importar .docx
+            </Link>
+          )}
           <button onClick={() => setShowModal(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> Nova Demanda
           </button>

@@ -230,6 +230,9 @@ model DocumentoAtividade {
   arquivoPath    String?
   arquivoMime    String?
   arquivoTamanho Int?
+  // Hash SHA-256 do conteúdo do arquivo, calculado no upload — permite verificar
+  // integridade (o arquivo não foi corrompido/alterado) a qualquer momento.
+  arquivoHash    String?
   createdAt      DateTime @default(now())
 
   atividade Atividade @relation(fields: [atividadeId], references: [id], onDelete: Cascade)

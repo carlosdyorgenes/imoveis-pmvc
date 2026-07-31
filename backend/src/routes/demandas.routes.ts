@@ -8,6 +8,7 @@ import { authenticate, requireMaster, AuthRequest } from '../middleware/auth'
 import { AppError } from '../middleware/errorHandler'
 import { createLog } from '../utils/logger'
 import { notificar } from '../utils/notificar'
+import { extrairParagrafosDocx, extrairItensCandidatos } from '../utils/docxParser'
 import { previewImportacao } from '../data/previewImportacao'
 import { TRANSICOES_DEMANDA, TRANSICOES_ATIVIDADE, transicaoValida, AÇÕES_DO_RESPONSAVEL, AÇÕES_DO_SOLICITANTE } from '../domain/estados'
 
@@ -581,6 +582,7 @@ demandasRouter.post('/atividades/:atividadeId/documentos/upload', (req: AuthRequ
   await assertPodeGerenciarChecklist(req, atividade)
 
   const nome = (req.body.nome as string)?.trim() || file.originalname
+  const arquivoHash = crypto.createHash('sha256').update(fs.readFileSync(file.path)).digest('hex')
   const versaoAnterior = await prisma.documentoAtividade.count({ where: { atividadeId: atividade.id, nome } })
   const documento = await prisma.documentoAtividade.create({
     data: {
@@ -592,6 +594,7 @@ demandasRouter.post('/atividades/:atividadeId/documentos/upload', (req: AuthRequ
       arquivoPath: file.filename,
       arquivoMime: file.mimetype,
       arquivoTamanho: file.size,
+      arquivoHash,
     },
   })
 
@@ -612,6 +615,24 @@ demandasRouter.get('/documentos/:id/arquivo', async (req: AuthRequest, res) => {
   if (!fs.existsSync(filePath)) throw new AppError('Arquivo não encontrado no armazenamento', 404)
 
   res.download(filePath, doc.nome + path.extname(doc.arquivoPath))
+})
+
+// Recalcula o hash do arquivo em disco agora e compara com o hash salvo no upload.
+// Detecta corrupção/alteração do arquivo depois de enviado (integridade real, não só
+// confiança cega no armazenamento).
+demandasRouter.get('/documentos/:id/verificar-integridade', async (req: AuthRequest, res) => {
+  const doc = await prisma.documentoAtividade.findUnique({ where: { id: req.params.id } })
+  if (!doc || !doc.arquivoPath) throw new AppError('Este documento não é um arquivo enviado (é um link)', 400)
+  if (!doc.arquivoHash) throw new AppError('Este arquivo foi enviado antes do recurso de integridade existir — sem hash de referência', 400)
+
+  const filePath = path.join(UPLOADS_DIR, doc.arquivoPath)
+  if (!fs.existsSync(filePath)) {
+    return res.json({ integro: false, motivo: 'Arquivo não encontrado no armazenamento (removido ou perdido)' })
+  }
+
+  const hashAtual = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
+  const integro = hashAtual === doc.arquivoHash
+  res.json({ integro, hashOriginal: doc.arquivoHash, hashAtual, motivo: integro ? null : 'O conteúdo do arquivo não corresponde ao hash registrado no upload' })
 })
 
 demandasRouter.delete('/documentos/:id', async (req: AuthRequest, res) => {
@@ -724,6 +745,38 @@ demandasRouter.delete('/comentarios/:id', async (req: AuthRequest, res) => {
 
 demandasRouter.get('/importar/preview', requireMaster, async (req, res) => {
   res.json(previewImportacao)
+})
+
+// Importador genérico: aceita qualquer .docx (não só o documento de referência fixo),
+// extrai o texto real e devolve uma prévia heurística (best-effort, baseada em regex de
+// padrão GEP "numero/ano") para revisão manual. Nunca grava nada — apenas processa em
+// memória e descarta o arquivo (sem persistir no volume, diferente do upload de documentos).
+const uploadDocxTemp = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
+
+demandasRouter.post('/importar/upload-preview', requireMaster, (req: AuthRequest, res, next) => {
+  uploadDocxTemp.single('arquivo')(req, res, (err) => {
+    if (err) return next(new AppError(err.message || 'Erro no upload do arquivo'))
+    next()
+  })
+}, async (req: AuthRequest, res) => {
+  const file = (req as AuthRequest & { file?: Express.Multer.File }).file
+  if (!file) throw new AppError('Nenhum arquivo enviado')
+  if (!file.originalname.toLowerCase().endsWith('.docx')) throw new AppError('Envie um arquivo .docx')
+
+  let paragrafos: string[]
+  try {
+    paragrafos = await extrairParagrafosDocx(file.buffer)
+  } catch {
+    throw new AppError('Não foi possível ler o arquivo — confirme que é um .docx válido')
+  }
+
+  const itens = extrairItensCandidatos(paragrafos)
+  res.json({
+    fonte: file.originalname,
+    totalParagrafos: paragrafos.length,
+    observacao: 'Prévia extraída automaticamente por heurística (padrão GEP "número/ano"). Revise e corrija cada item antes de confirmar — nada foi salvo ainda.',
+    itens,
+  })
 })
 
 interface ItemImportacao {

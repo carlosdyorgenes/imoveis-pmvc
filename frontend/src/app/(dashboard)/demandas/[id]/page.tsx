@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Demanda, Atividade, StatusAtividade, User, Equipe } from '@/types'
 import Link from 'next/link'
-import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, MessageSquare, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, MessageSquare, AlertTriangle, ShieldCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -140,6 +140,19 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     onSuccess: invalidar,
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao remover documento'))
   })
+
+  const verificarIntegridade = async (docId: string) => {
+    try {
+      const res = await api.get(`/api/demandas/documentos/${docId}/verificar-integridade`)
+      if (res.data.integro) {
+        toast.success('Arquivo íntegro — hash confere com o do envio original')
+      } else {
+        toast.error(`Integridade comprometida: ${res.data.motivo}`)
+      }
+    } catch (e: any) {
+      toast.error(errMsg(e, 'Erro ao verificar integridade'))
+    }
+  }
 
   const createPendencia = useMutation({
     mutationFn: () => api.post(`/api/demandas/${id}/pendencias`, { orgao: pOrgao, descricao: pDescricao, protocolo: pProtocolo }),
@@ -535,6 +548,15 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                             <span className="truncate">{d.nome}</span>
                             <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
                           </a>
+                        )}
+                        {d.arquivoPath && d.arquivoHash && (
+                          <button
+                            onClick={() => verificarIntegridade(d.id)}
+                            title="Verificar integridade do arquivo (hash SHA-256)"
+                            className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-green-600 transition-all flex-shrink-0"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                          </button>
                         )}
                         {podeGerenciarChecklist(atividadeModal) && (
                           <button onClick={() => deleteDocumento.mutate(d.id)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all">

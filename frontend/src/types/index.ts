@@ -137,6 +137,7 @@ export interface DocumentoAtividade {
   arquivoPath?: string | null
   arquivoMime?: string | null
   arquivoTamanho?: number | null
+  arquivoHash?: string | null
   createdAt: string
 }
 
