@@ -268,6 +268,25 @@ demandasRouter.put('/:id', async (req: AuthRequest, res) => {
   res.json(demanda)
 })
 
+// Exclusão definitiva — restrita ao Master, já que apaga atividades/checklist/documentos/
+// histórico em cascata. Usada principalmente para remover demandas criadas por engano
+// (o fluxo normal de "encerrar" uma demanda é CANCELADA/CONCLUIDA via /:id/status).
+demandasRouter.delete('/:id', requireMaster, async (req: AuthRequest, res) => {
+  const demanda = await prisma.demanda.findUnique({ where: { id: req.params.id } })
+  if (!demanda) throw new AppError('Demanda não encontrada', 404)
+
+  const docs = await prisma.documentoAtividade.findMany({
+    where: { atividade: { demandaId: demanda.id }, arquivoPath: { not: null } },
+  })
+  await prisma.demanda.delete({ where: { id: demanda.id } })
+  for (const doc of docs) {
+    if (doc.arquivoPath) fs.unlink(path.join(UPLOADS_DIR, doc.arquivoPath), () => {})
+  }
+
+  await createLog({ userId: req.user!.id, action: 'DELETE', entity: 'DEMANDA', entityId: demanda.id, details: `GEP ${demanda.gepNumero}/${demanda.gepAno}` })
+  res.json({ message: 'Demanda excluída' })
+})
+
 demandasRouter.put('/:id/status', async (req: AuthRequest, res) => {
   const { status, motivo } = req.body
   const demanda = await prisma.demanda.findUnique({ where: { id: req.params.id } })
