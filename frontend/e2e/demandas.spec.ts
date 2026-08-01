@@ -67,4 +67,24 @@ test.describe('Módulo de Demandas', () => {
 
     await expect(page.locator(`text=${textoComentario}`).first()).toBeVisible({ timeout: 10_000 })
   })
+
+  test('exclui uma demanda pelo botão da listagem', async ({ page }) => {
+    await login(page)
+    await page.goto('/demandas')
+
+    const gepNumero = `${E2E_PREFIX}${Date.now()}`
+    await page.getByRole('button', { name: /Nova Demanda/i }).click()
+    await page.getByPlaceholder('126158').fill(gepNumero)
+    await page.getByPlaceholder('2025').fill('2099')
+    await page.getByPlaceholder(/Revalidação de alvará/i).fill('Teste de exclusao E2E')
+    await page.getByRole('button', { name: /^Criar$/i }).click()
+
+    const linha = page.locator('tr', { has: page.locator(`text=${gepNumero}/2099`) })
+    await expect(linha).toBeVisible({ timeout: 10_000 })
+
+    page.once('dialog', dialog => dialog.accept())
+    await linha.getByTitle('Excluir demanda').click()
+
+    await expect(page.locator(`text=${gepNumero}/2099`)).not.toBeVisible({ timeout: 10_000 })
+  })
 })
