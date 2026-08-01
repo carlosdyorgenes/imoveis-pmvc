@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Demanda, Atividade, StatusAtividade, User, Equipe } from '@/types'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, MessageSquare, AlertTriangle, ShieldCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
@@ -33,6 +34,7 @@ const STATUS_ATIV_COLOR: Record<StatusAtividade, string> = {
 export default function DemandaDetailPage({ params }: { params: { id: string } }) {
   const { id } = params
   const qc = useQueryClient()
+  const router = useRouter()
   const { user, isMaster } = useAuth()
 
   const [showNovaAtividade, setShowNovaAtividade] = useState(false)
@@ -72,6 +74,12 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   })
 
   const invalidar = () => qc.invalidateQueries({ queryKey: ['demanda', id] })
+
+  const deleteDemanda = useMutation({
+    mutationFn: () => api.delete(`/api/demandas/${id}`),
+    onSuccess: () => { toast.success('Demanda excluída'); router.push('/demandas') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao excluir demanda'))
+  })
 
   const createAtividade = useMutation({
     mutationFn: () => api.post(`/api/demandas/${id}/atividades`, {
@@ -209,6 +217,14 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
             {demanda.prazo && <span className="ml-2 text-xs text-gray-400">Prazo: {format(new Date(demanda.prazo), 'dd/MM/yy', { locale: ptBR })}</span>}
           </p>
         </div>
+        {isMaster && (
+          <button
+            onClick={() => confirm(`Excluir definitivamente a demanda GEP ${demanda.gepNumero}/${demanda.gepAno}?\n\nIsso apaga também todas as atividades, checklist, documentos e histórico relacionados. Esta ação não pode ser desfeita.`) && deleteDemanda.mutate()}
+            className="ml-auto btn-danger text-xs"
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Excluir Demanda
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
