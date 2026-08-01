@@ -292,7 +292,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   <div className="min-w-0">
                     <p className="font-medium text-gray-800 text-sm truncate">{a.titulo}</p>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      {a.equipe ? `Equipe: ${a.equipe.nome}` : `Responsável: ${a.responsavel?.name}`}
+                      {a.equipe ? `Equipe: ${a.equipe.nome}` : `Responsável: ${a.responsavel?.name || 'não definido'}`}
                     </p>
                     {total > 0 && (
                       <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
@@ -445,7 +445,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               <div>
                 <p className="font-semibold text-gray-800">{atividadeModal.titulo}</p>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  {atividadeModal.equipe ? `Equipe: ${atividadeModal.equipe.nome}` : `Responsável: ${atividadeModal.responsavel?.name}`} · Solicitante: {atividadeModal.solicitante.name}
+                  {atividadeModal.equipe ? `Equipe: ${atividadeModal.equipe.nome}` : `Responsável: ${atividadeModal.responsavel?.name || 'não definido'}`} · Solicitante: {atividadeModal.solicitante.name}
                 </p>
                 <span className={`inline-block mt-1.5 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_ATIV_COLOR[atividadeModal.status]}`}>
                   {STATUS_ATIV_LABEL[atividadeModal.status]}

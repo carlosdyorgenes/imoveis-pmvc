@@ -237,6 +237,9 @@ demandasRouter.post('/', async (req: AuthRequest, res) => {
           titulo: etapaModelo.titulo,
           instrucoes: etapaModelo.instrucoes,
           equipeId: etapaModelo.equipeId,
+          // Etapa do modelo sem equipe definida: cai para o solicitante, para a atividade
+          // nunca nascer sem ninguém que possa agir nela.
+          responsavelId: etapaModelo.equipeId ? null : req.user!.id,
           modeloEtapaId: etapaModelo.id,
           solicitanteId: req.user!.id,
           prazo: etapaModelo.prazoDias ? new Date(Date.now() + etapaModelo.prazoDias * 86400000) : null,
@@ -493,6 +496,9 @@ async function ativarProximaEtapaDoFluxo(demandaId: string, atividadeAprovadaId:
         titulo: etapaCompleta.titulo,
         instrucoes: etapaCompleta.instrucoes,
         equipeId: etapaCompleta.equipeId,
+        // Etapa do modelo sem equipe definida: cai para o solicitante, para a atividade
+        // nunca nascer sem ninguém que possa agir nela.
+        responsavelId: etapaCompleta.equipeId ? null : userId,
         modeloEtapaId: etapaCompleta.id,
         solicitanteId: userId,
         prazo: etapaCompleta.prazoDias ? new Date(Date.now() + etapaCompleta.prazoDias * 86400000) : null,
