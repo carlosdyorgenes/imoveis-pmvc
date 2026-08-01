@@ -50,14 +50,26 @@ tiposDemandaRouter.delete('/:id', requirePermissao('tipos_demanda.gerenciar'), a
 
 // ===== Etapas do modelo (motor de fluxo configurável) =====
 
+// `paraleloComEtapaId`: se informado, a nova etapa recebe o MESMO `ordem` da etapa indicada,
+// tornando-as um grupo paralelo (ambas nascem juntas e o fluxo só avança quando as duas forem
+// aprovadas). Sem esse campo, a etapa é anexada ao final da sequência (comportamento padrão).
 tiposDemandaRouter.post('/:tipoId/etapas', requirePermissao('tipos_demanda.gerenciar'), async (req: AuthRequest, res) => {
-  const { titulo, instrucoes, equipeId, prazoDias } = req.body
+  const { titulo, instrucoes, equipeId, prazoDias, paraleloComEtapaId } = req.body
   if (!titulo?.trim()) throw new AppError('Título da etapa é obrigatório')
 
   const tipo = await prisma.tipoDemanda.findUnique({ where: { id: req.params.tipoId } })
   if (!tipo) throw new AppError('Tipo de demanda não encontrado', 404)
 
-  const count = await prisma.modeloEtapa.count({ where: { tipoDemandaId: tipo.id } })
+  let ordem: number
+  if (paraleloComEtapaId) {
+    const etapaIrma = await prisma.modeloEtapa.findUnique({ where: { id: paraleloComEtapaId } })
+    if (!etapaIrma || etapaIrma.tipoDemandaId !== tipo.id) throw new AppError('Etapa paralela inválida')
+    ordem = etapaIrma.ordem
+  } else {
+    const maiorOrdem = await prisma.modeloEtapa.aggregate({ where: { tipoDemandaId: tipo.id }, _max: { ordem: true } })
+    ordem = (maiorOrdem._max.ordem ?? -1) + 1
+  }
+
   const etapa = await prisma.modeloEtapa.create({
     data: {
       tipoDemandaId: tipo.id,
@@ -65,7 +77,7 @@ tiposDemandaRouter.post('/:tipoId/etapas', requirePermissao('tipos_demanda.geren
       instrucoes,
       equipeId: equipeId || null,
       prazoDias: prazoDias ? Number(prazoDias) : null,
-      ordem: count,
+      ordem,
     },
   })
   res.status(201).json(etapa)
