@@ -2,8 +2,12 @@ export type UserRole = 'MASTER' | 'PADRAO'
 export type TipoImovel = 'PROPRIO' | 'LOCADO'
 export type ZonaImovel = 'URBANO' | 'RURAL'
 
-export type StatusDemanda = 'ABERTA' | 'EM_ANDAMENTO' | 'AGUARDANDO_TERCEIRO' | 'DEVOLVIDA' | 'CONCLUIDA' | 'CANCELADA'
-export type StatusAtividade = 'ATRIBUIDA' | 'EM_ANDAMENTO' | 'CONCLUIDA' | 'DEVOLVIDA' | 'APROVADA' | 'CANCELADA'
+export type StatusDemanda = 'ABERTA' | 'EM_ANDAMENTO' | 'PARCIALMENTE_CONCLUIDA' | 'AGUARDANDO_TERCEIRO' | 'DEVOLVIDA' | 'CONCLUIDA' | 'CANCELADA'
+export type StatusAtividade = 'ATRIBUIDA' | 'EM_ANDAMENTO' | 'AGUARDANDO_INFORMACAO' | 'CONCLUIDA' | 'DEVOLVIDA' | 'APROVADA' | 'REABERTA' | 'CANCELADA'
+export type Prioridade = 'ALTA' | 'MEDIA' | 'BAIXA'
+
+export interface Duracao { minutos: number; texto: string }
+export interface TemposAtividade { tempoEspera: Duracao; tempoExecucao: Duracao | null; tempoTotal: Duracao }
 
 export interface Perfil {
   id: string
@@ -151,12 +155,17 @@ export interface Atividade {
   observacoes?: string
   motivoDevolucao?: string
   linkDocumento?: string
+  anexoObrigatorio: boolean
+  dataInicio?: string | null
+  dataConclusao?: string | null
+  informacoesFinalizacao?: string | null
   createdAt: string
   responsavel: { id: string; name: string } | null
   equipe: { id: string; nome: string } | null
   solicitante: { id: string; name: string }
   passos: PassoAtividade[]
   documentos: DocumentoAtividade[]
+  tempos?: TemposAtividade
 }
 
 export interface EquipeMembro {
@@ -246,6 +255,7 @@ export interface Demanda {
   descricao?: string
   interessado?: string
   status: StatusDemanda
+  prioridade: Prioridade
   prazo?: string
   createdAt: string
   solicitante: { id: string; name: string }

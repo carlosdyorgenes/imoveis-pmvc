@@ -2,13 +2,14 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { Demanda, StatusDemanda, TipoDemanda } from '@/types'
+import { Demanda, StatusDemanda, TipoDemanda, Prioridade } from '@/types'
 import Link from 'next/link'
-import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox, List, Columns3, FileUp, Trash2 } from 'lucide-react'
+import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox, List, Columns3, FileUp, Trash2, ArrowUp, Minus, ArrowDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { useAuth } from '@/hooks/useAuth'
+import { useRouter } from 'next/navigation'
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -24,6 +25,7 @@ const errMsg = (err: any, fallback: string) => err?.response?.data?.error || fal
 const STATUS_LABEL: Record<StatusDemanda, string> = {
   ABERTA: 'Aberta',
   EM_ANDAMENTO: 'Em andamento',
+  PARCIALMENTE_CONCLUIDA: 'Parcialmente concluída',
   AGUARDANDO_TERCEIRO: 'Aguardando terceiro',
   DEVOLVIDA: 'Devolvida',
   CONCLUIDA: 'Concluída',
@@ -33,10 +35,28 @@ const STATUS_LABEL: Record<StatusDemanda, string> = {
 const STATUS_COLOR: Record<StatusDemanda, string> = {
   ABERTA: 'bg-gray-100 text-gray-600',
   EM_ANDAMENTO: 'bg-blue-100 text-blue-700',
+  PARCIALMENTE_CONCLUIDA: 'bg-indigo-100 text-indigo-700',
   AGUARDANDO_TERCEIRO: 'bg-amber-100 text-amber-700',
   DEVOLVIDA: 'bg-orange-100 text-orange-700',
   CONCLUIDA: 'bg-green-100 text-green-700',
   CANCELADA: 'bg-red-100 text-red-700',
+}
+
+const PRIORIDADE_LABEL: Record<Prioridade, string> = { ALTA: 'Alta', MEDIA: 'Média', BAIXA: 'Baixa' }
+const PRIORIDADE_COLOR: Record<Prioridade, string> = {
+  ALTA: 'bg-red-100 text-red-700',
+  MEDIA: 'bg-amber-100 text-amber-700',
+  BAIXA: 'bg-gray-100 text-gray-600',
+}
+const PRIORIDADE_ICONE: Record<Prioridade, typeof ArrowUp> = { ALTA: ArrowUp, MEDIA: Minus, BAIXA: ArrowDown }
+
+function BadgePrioridade({ prioridade }: { prioridade: Prioridade }) {
+  const Icone = PRIORIDADE_ICONE[prioridade]
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${PRIORIDADE_COLOR[prioridade]}`}>
+      <Icone className="w-3 h-3" /> {PRIORIDADE_LABEL[prioridade]}
+    </span>
+  )
 }
 
 export default function DemandasPage() {
@@ -50,19 +70,24 @@ export default function DemandasPage() {
   const [interessado, setInteressado] = useState('')
   const [descricao, setDescricao] = useState('')
   const [tipoDemandaId, setTipoDemandaId] = useState('')
+  const [prioridade, setPrioridade] = useState<Prioridade>('MEDIA')
+  const [duplicado, setDuplicado] = useState<{ mensagem: string; demandaExistenteId: string } | null>(null)
 
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroTipo, setFiltroTipo] = useState('')
+  const [filtroPrioridade, setFiltroPrioridade] = useState('')
   const [somenteAtrasadas, setSomenteAtrasadas] = useState(false)
   const [visualizacao, setVisualizacao] = useState<'lista' | 'kanban'>('lista')
+  const router = useRouter()
 
   const { data: demandas = [], isLoading } = useQuery<Demanda[]>({
-    queryKey: ['demandas', gepBusca, filtroStatus, filtroTipo, somenteAtrasadas],
+    queryKey: ['demandas', gepBusca, filtroStatus, filtroTipo, filtroPrioridade, somenteAtrasadas],
     queryFn: () => api.get('/api/demandas', {
       params: {
         ...(gepBusca ? { gep: gepBusca } : {}),
         ...(filtroStatus ? { status: filtroStatus } : {}),
         ...(filtroTipo ? { tipoDemandaId: filtroTipo } : {}),
+        ...(filtroPrioridade ? { prioridade: filtroPrioridade } : {}),
         ...(somenteAtrasadas ? { atrasadas: 'true' } : {}),
       },
     }).then(r => r.data),
@@ -85,16 +110,31 @@ export default function DemandasPage() {
     }
   }
 
+  const fecharModal = () => {
+    setShowModal(false); setDuplicado(null)
+    setGepNumero(''); setAssunto(''); setInteressado(''); setDescricao(''); setTipoDemandaId(''); setPrioridade('MEDIA')
+  }
+
   const createMutation = useMutation({
-    mutationFn: () => api.post('/api/demandas', { gepNumero, gepAno, assunto, interessado, descricao, tipoDemandaId: tipoDemandaId || undefined }),
-    onSuccess: (res) => {
+    mutationFn: (confirmarDuplicado?: boolean) => api.post('/api/demandas', {
+      gepNumero, gepAno, assunto, interessado, descricao, prioridade,
+      tipoDemandaId: tipoDemandaId || undefined,
+      ...(confirmarDuplicado ? { confirmarDuplicado: true } : {}),
+    }),
+    onSuccess: () => {
       toast.success('Demanda criada')
-      if (res.data.avisoGepDuplicado) toast(res.data.avisoGepDuplicado, { icon: '⚠️' })
       qc.invalidateQueries({ queryKey: ['demandas'] })
-      setShowModal(false)
-      setGepNumero(''); setAssunto(''); setInteressado(''); setDescricao(''); setTipoDemandaId('')
+      fecharModal()
     },
-    onError: (e: any) => toast.error(errMsg(e, 'Erro ao criar demanda'))
+    onError: (e: any) => {
+      // GEP duplicado: a API bloqueia (409) e devolve o id da demanda existente — oferece
+      // a opção de abrir a demanda já cadastrada em vez de criar silenciosamente uma nova.
+      if (e?.response?.status === 409 && e.response.data?.demandaExistenteId) {
+        setDuplicado({ mensagem: e.response.data.error, demandaExistenteId: e.response.data.demandaExistenteId })
+        return
+      }
+      toast.error(errMsg(e, 'Erro ao criar demanda'))
+    }
   })
 
   const deleteMutation = useMutation({
@@ -186,6 +226,10 @@ export default function DemandasPage() {
             <option value="">Todos os tipos</option>
             {tiposDemanda.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
           </select>
+          <select className="input sm:w-36" value={filtroPrioridade} onChange={e => setFiltroPrioridade(e.target.value)}>
+            <option value="">Toda prioridade</option>
+            {Object.entries(PRIORIDADE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
           <button
             onClick={() => setSomenteAtrasadas(v => !v)}
             className={`text-xs px-3 py-2 rounded-lg border flex items-center gap-1.5 whitespace-nowrap ${somenteAtrasadas ? 'bg-red-50 border-red-300 text-red-700' : 'border-gray-200 text-gray-500'}`}
@@ -219,7 +263,10 @@ export default function DemandasPage() {
                     return (
                       <div key={d.id} className={`relative group bg-white rounded-lg border shadow-sm hover:shadow transition-shadow ${atrasada ? 'border-red-300' : 'border-gray-200'}`}>
                         <Link href={`/demandas/${d.id}`} className="block p-3">
-                          <p className="font-mono text-xs font-semibold text-primary-700 pr-4">{d.gepNumero}/{d.gepAno}</p>
+                          <div className="flex items-center justify-between gap-2 pr-4">
+                            <p className="font-mono text-xs font-semibold text-primary-700">{d.gepNumero}/{d.gepAno}</p>
+                            <BadgePrioridade prioridade={d.prioridade} />
+                          </div>
                           <p className="text-xs text-gray-700 mt-1 line-clamp-2">{d.assunto}</p>
                           {d.interessado && <p className="text-[10px] text-gray-400 mt-0.5">{d.interessado}</p>}
                           <div className="flex items-center justify-between mt-2">
@@ -259,6 +306,7 @@ export default function DemandasPage() {
             <table className="w-full text-sm table-fixed">
               <colgroup>
                 <col className="w-[110px]" /><col /><col className="w-[160px]" />
+                <col className="w-[90px]" />
                 <col className="w-[110px]" /><col className="w-[130px]" /><col className="w-[110px]" />
                 {isMaster && <col className="w-[50px]" />}
               </colgroup>
@@ -267,6 +315,7 @@ export default function DemandasPage() {
                   <th className="text-left px-3 py-2 font-medium text-gray-600">GEP</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-600">Assunto</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-600">Interessado</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-600">Prioridade</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-600">Status</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-600">Atividades</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-600">Criada em</th>
@@ -285,6 +334,7 @@ export default function DemandasPage() {
                       <Link href={`/demandas/${d.id}`} className="hover:underline">{d.assunto}</Link>
                     </td>
                     <td className="px-3 py-2 text-gray-500 text-xs break-words align-top">{d.interessado || '—'}</td>
+                    <td className="px-3 py-2 align-top"><BadgePrioridade prioridade={d.prioridade} /></td>
                     <td className="px-3 py-2 align-top">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[d.status]}`}>
                         {STATUS_LABEL[d.status]}
@@ -323,25 +373,44 @@ export default function DemandasPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="flex items-center justify-between p-5 border-b border-gray-100">
-              <h2 className="font-semibold text-gray-800">Nova Demanda</h2>
-              <button onClick={() => setShowModal(false)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+              <h2 className="font-semibold text-gray-800">Novo Processo GEP</h2>
+              <button onClick={fecharModal} className="p-1.5 hover:bg-gray-100 rounded-lg">
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
             <div className="p-5 space-y-3">
+              {duplicado && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 space-y-2">
+                  <p className="flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> {duplicado.mensagem}</p>
+                  <div className="flex gap-2">
+                    <button onClick={() => router.push(`/demandas/${duplicado.demandaExistenteId}`)} className="btn-secondary text-xs py-1">
+                      Abrir demanda existente
+                    </button>
+                    <button onClick={() => createMutation.mutate(true)} className="btn-primary text-xs py-1">
+                      Criar mesmo assim
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Número do GEP *</label>
-                  <input className="input" placeholder="126158" value={gepNumero} onChange={e => setGepNumero(e.target.value)} autoFocus />
+                  <input className="input" placeholder="126158" value={gepNumero} onChange={e => { setGepNumero(e.target.value); setDuplicado(null) }} autoFocus />
                 </div>
                 <div>
                   <label className="label">Ano *</label>
-                  <input className="input" placeholder="2025" value={gepAno} onChange={e => setGepAno(e.target.value)} />
+                  <input className="input" placeholder="2025" value={gepAno} onChange={e => { setGepAno(e.target.value); setDuplicado(null) }} />
                 </div>
               </div>
               <div>
                 <label className="label">Assunto *</label>
                 <input className="input" placeholder="Ex: Revalidação de alvará" value={assunto} onChange={e => setAssunto(e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Prioridade *</label>
+                <select className="input" value={prioridade} onChange={e => setPrioridade(e.target.value as Prioridade)}>
+                  {Object.entries(PRIORIDADE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
               </div>
               <div>
                 <label className="label">Tipo de demanda (opcional)</label>
@@ -366,9 +435,9 @@ export default function DemandasPage() {
               </div>
             </div>
             <div className="flex gap-3 p-5 border-t border-gray-100">
-              <button onClick={() => setShowModal(false)} className="btn-secondary flex-1 justify-center">Cancelar</button>
+              <button onClick={fecharModal} className="btn-secondary flex-1 justify-center">Cancelar</button>
               <button
-                onClick={() => gepNumero.trim() && gepAno.trim() && assunto.trim() && createMutation.mutate()}
+                onClick={() => gepNumero.trim() && gepAno.trim() && assunto.trim() && createMutation.mutate(undefined)}
                 disabled={!gepNumero.trim() || !gepAno.trim() || !assunto.trim() || createMutation.isPending}
                 className="btn-primary flex-1 justify-center"
               >

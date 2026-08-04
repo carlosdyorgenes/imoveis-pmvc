@@ -2,10 +2,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { Demanda, Atividade, StatusAtividade, User, Equipe } from '@/types'
+import { Demanda, Atividade, StatusAtividade, User, Equipe, Prioridade } from '@/types'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, MessageSquare, AlertTriangle, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, MessageSquare, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -16,20 +16,30 @@ const errMsg = (err: any, fallback: string) => err?.response?.data?.error || fal
 const STATUS_ATIV_LABEL: Record<StatusAtividade, string> = {
   ATRIBUIDA: 'Atribuída',
   EM_ANDAMENTO: 'Em andamento',
+  AGUARDANDO_INFORMACAO: 'Aguardando informação',
   CONCLUIDA: 'Concluída (aguardando aprovação)',
   DEVOLVIDA: 'Devolvida para correção',
   APROVADA: 'Aprovada',
+  REABERTA: 'Reaberta',
   CANCELADA: 'Cancelada',
 }
 
 const STATUS_ATIV_COLOR: Record<StatusAtividade, string> = {
   ATRIBUIDA: 'bg-gray-100 text-gray-600',
   EM_ANDAMENTO: 'bg-blue-100 text-blue-700',
+  AGUARDANDO_INFORMACAO: 'bg-purple-100 text-purple-700',
   CONCLUIDA: 'bg-amber-100 text-amber-700',
   DEVOLVIDA: 'bg-orange-100 text-orange-700',
   APROVADA: 'bg-green-100 text-green-700',
+  REABERTA: 'bg-indigo-100 text-indigo-700',
   CANCELADA: 'bg-red-100 text-red-700',
 }
+
+const PRIORIDADE_LABEL: Record<Prioridade, string> = { ALTA: 'Alta', MEDIA: 'Média', BAIXA: 'Baixa' }
+const PRIORIDADE_COLOR: Record<Prioridade, string> = {
+  ALTA: 'bg-red-100 text-red-700', MEDIA: 'bg-amber-100 text-amber-700', BAIXA: 'bg-gray-100 text-gray-600',
+}
+const PRIORIDADE_ICONE: Record<Prioridade, typeof ArrowUp> = { ALTA: ArrowUp, MEDIA: Minus, BAIXA: ArrowDown }
 
 export default function DemandaDetailPage({ params }: { params: { id: string } }) {
   const { id } = params
@@ -43,6 +53,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [novoResponsavel, setNovoResponsavel] = useState('')
   const [novaEquipe, setNovaEquipe] = useState('')
   const [novasInstrucoes, setNovasInstrucoes] = useState('')
+  const [novoAnexoObrigatorio, setNovoAnexoObrigatorio] = useState(false)
 
   const [atividadeAberta, setAtividadeAberta] = useState<string | null>(null)
   const [novoPasso, setNovoPasso] = useState('')
@@ -50,6 +61,16 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [showDevolver, setShowDevolver] = useState(false)
   const [novoDocNome, setNovoDocNome] = useState('')
   const [novoDocLink, setNovoDocLink] = useState('')
+
+  const [showFinalizar, setShowFinalizar] = useState(false)
+  const [infoFinalizacao, setInfoFinalizacao] = useState('')
+
+  const [showTransferir, setShowTransferir] = useState(false)
+  const [novoResponsavelTransfer, setNovoResponsavelTransfer] = useState('')
+  const [justificativaTransfer, setJustificativaTransfer] = useState('')
+
+  const [showReabrir, setShowReabrir] = useState(false)
+  const [motivoReabrir, setMotivoReabrir] = useState('')
 
   const [showPendencia, setShowPendencia] = useState(false)
   const [pOrgao, setPOrgao] = useState('')
@@ -87,19 +108,37 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
       instrucoes: novasInstrucoes,
       responsavelId: tipoAtribuicao === 'usuario' ? novoResponsavel : undefined,
       equipeId: tipoAtribuicao === 'equipe' ? novaEquipe : undefined,
+      anexoObrigatorio: novoAnexoObrigatorio,
     }),
     onSuccess: () => {
       invalidar(); toast.success('Atividade atribuída')
-      setShowNovaAtividade(false); setNovoTitulo(''); setNovoResponsavel(''); setNovaEquipe(''); setNovasInstrucoes('')
+      setShowNovaAtividade(false); setNovoTitulo(''); setNovoResponsavel(''); setNovaEquipe(''); setNovasInstrucoes(''); setNovoAnexoObrigatorio(false)
     },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao criar atividade'))
   })
 
   const statusAtividade = useMutation({
-    mutationFn: ({ atividadeId, status, motivo }: { atividadeId: string; status: string; motivo?: string }) =>
-      api.put(`/api/demandas/atividades/${atividadeId}/status`, { status, motivo }),
-    onSuccess: () => { invalidar(); toast.success('Atividade atualizada'); setShowDevolver(false); setDevolverMotivo('') },
+    mutationFn: ({ atividadeId, status, motivo, informacoesFinalizacao }: { atividadeId: string; status: string; motivo?: string; informacoesFinalizacao?: string }) =>
+      api.put(`/api/demandas/atividades/${atividadeId}/status`, { status, motivo, informacoesFinalizacao }),
+    onSuccess: () => {
+      invalidar(); toast.success('Atividade atualizada')
+      setShowDevolver(false); setDevolverMotivo('')
+      setShowFinalizar(false); setInfoFinalizacao('')
+      setShowReabrir(false); setMotivoReabrir('')
+    },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao atualizar atividade'))
+  })
+
+  const transferirAtividade = useMutation({
+    mutationFn: ({ atividadeId, novoResponsavelId, justificativa }: { atividadeId: string; novoResponsavelId: string; justificativa: string }) =>
+      api.put(`/api/demandas/atividades/${atividadeId}/transferir`, { novoResponsavelId, justificativa }),
+    onSuccess: (_, vars) => {
+      invalidar()
+      const nome = usuarios.find(u => u.id === vars.novoResponsavelId)?.name || ''
+      toast.success(`Tarefa transferida para ${nome}`)
+      setShowTransferir(false); setNovoResponsavelTransfer(''); setJustificativaTransfer('')
+    },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao transferir atividade'))
   })
 
   const addPasso = useMutation({
@@ -205,6 +244,11 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
         <div>
           <h1 className="text-xl font-bold text-gray-900 font-mono flex items-center gap-2">
             GEP {demanda.gepNumero}/{demanda.gepAno}
+            {(() => { const Icone = PRIORIDADE_ICONE[demanda.prioridade]; return (
+              <span className={`text-xs px-2 py-0.5 rounded-full font-sans font-medium flex items-center gap-1 ${PRIORIDADE_COLOR[demanda.prioridade]}`}>
+                <Icone className="w-3 h-3" /> {PRIORIDADE_LABEL[demanda.prioridade]}
+              </span>
+            )})()}
             {demanda.prazo && new Date(demanda.prazo) < new Date() && !['CONCLUIDA', 'CANCELADA'].includes(demanda.status) && (
               <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-sans font-medium flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" /> Atrasada
@@ -263,9 +307,13 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 )}
               </div>
               <div>
-                <label className="label">Instruções</label>
-                <textarea className="input min-h-16 resize-none" value={novasInstrucoes} onChange={e => setNovasInstrucoes(e.target.value)} />
+                <label className="label">Instruções / solicitação específica</label>
+                <textarea className="input min-h-16 resize-none" placeholder="O que deve ser feito, qual resultado é esperado..." value={novasInstrucoes} onChange={e => setNovasInstrucoes(e.target.value)} />
               </div>
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <input type="checkbox" checked={novoAnexoObrigatorio} onChange={e => setNovoAnexoObrigatorio(e.target.checked)} className="w-3.5 h-3.5" />
+                Anexo obrigatório para finalizar esta atividade
+              </label>
               <div className="flex gap-2">
                 <button onClick={() => setShowNovaAtividade(false)} className="btn-secondary flex-1 justify-center text-xs">Cancelar</button>
                 <button
@@ -297,6 +345,13 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                     {total > 0 && (
                       <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
                         <ListChecks className="w-3 h-3" /> {done}/{total} passos concluídos
+                      </p>
+                    )}
+                    {a.tempos && (
+                      <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        espera: {a.tempos.tempoEspera.texto}
+                        {a.tempos.tempoExecucao && ` · execução: ${a.tempos.tempoExecucao.texto}`}
                       </p>
                     )}
                   </div>
@@ -592,9 +647,24 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   Iniciar atividade
                 </button>
               )}
-              {atividadeModal.status === 'EM_ANDAMENTO' && isResponsavel(atividadeModal) && (
-                <button onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'CONCLUIDA' })} className="btn-primary w-full justify-center">
-                  <CheckCircle2 className="w-4 h-4" /> Concluir e devolver ao solicitante
+              {atividadeModal.status === 'AGUARDANDO_INFORMACAO' && isResponsavel(atividadeModal) && (
+                <button onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'EM_ANDAMENTO' })} className="btn-primary w-full justify-center">
+                  Retomar atividade
+                </button>
+              )}
+              {atividadeModal.status === 'EM_ANDAMENTO' && isResponsavel(atividadeModal) && !showFinalizar && (
+                <div className="flex gap-2">
+                  <button onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'AGUARDANDO_INFORMACAO' })} className="btn-secondary text-xs">
+                    Aguardar informação
+                  </button>
+                  <button onClick={() => { setInfoFinalizacao(''); setShowFinalizar(true) }} className="btn-primary flex-1 justify-center">
+                    <CheckCircle2 className="w-4 h-4" /> Finalizar tarefa
+                  </button>
+                </div>
+              )}
+              {['EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'DEVOLVIDA', 'REABERTA'].includes(atividadeModal.status) && isResponsavel(atividadeModal) && !showFinalizar && (
+                <button onClick={() => setShowTransferir(true)} className="btn-secondary w-full justify-center text-xs">
+                  <Repeat className="w-3.5 h-3.5" /> Transferir tarefa
                 </button>
               )}
               {atividadeModal.status === 'CONCLUIDA' && isSolicitante(atividadeModal) && !showDevolver && (
@@ -626,11 +696,137 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   </div>
                 </div>
               )}
-              {atividadeModal.status === 'APROVADA' && (
-                <p className="text-center text-sm text-green-600 font-medium flex items-center justify-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4" /> Atividade aprovada
-                </p>
+              {atividadeModal.status === 'APROVADA' && !showReabrir && (
+                <div className="space-y-2">
+                  <p className="text-center text-sm text-green-600 font-medium flex items-center justify-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4" /> Atividade aprovada
+                  </p>
+                  {isSolicitante(atividadeModal) && (
+                    <button onClick={() => setShowReabrir(true)} className="btn-secondary w-full justify-center text-xs">
+                      <RotateCcw className="w-3.5 h-3.5" /> Reabrir
+                    </button>
+                  )}
+                </div>
               )}
+              {showReabrir && (
+                <div className="space-y-2">
+                  <textarea
+                    className="input text-sm min-h-16 resize-none"
+                    placeholder="Justificativa da reabertura (obrigatória)..."
+                    value={motivoReabrir}
+                    onChange={e => setMotivoReabrir(e.target.value)}
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={() => setShowReabrir(false)} className="btn-secondary flex-1 justify-center text-xs">Cancelar</button>
+                    <button
+                      onClick={() => motivoReabrir.trim() && statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'REABERTA', motivo: motivoReabrir.trim() })}
+                      disabled={!motivoReabrir.trim()}
+                      className="btn-primary flex-1 justify-center text-xs"
+                    >
+                      Confirmar reabertura
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de transferência (Bloco 3: só entre usuários ativos da mesma equipe) */}
+      {showTransferir && atividadeModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h2 className="font-semibold text-gray-800">Transferir tarefa</h2>
+              <button onClick={() => setShowTransferir(false)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div>
+                <label className="label">Novo responsável (mesma equipe) *</label>
+                <select className="input" value={novoResponsavelTransfer} onChange={e => setNovoResponsavelTransfer(e.target.value)} autoFocus>
+                  <option value="">Selecione...</option>
+                  {usuarios
+                    .filter(u => u.active && u.id !== atividadeModal.responsavel?.id)
+                    .filter(u => !atividadeModal.equipe || equipes.find(e => e.id === atividadeModal.equipe!.id)?.membros.some(m => m.user.id === u.id))
+                    .map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Justificativa *</label>
+                <textarea className="input min-h-16 resize-none" placeholder="Por que esta tarefa não é de sua competência..." value={justificativaTransfer} onChange={e => setJustificativaTransfer(e.target.value)} />
+              </div>
+            </div>
+            <div className="flex gap-3 p-5 border-t border-gray-100">
+              <button onClick={() => setShowTransferir(false)} className="btn-secondary flex-1 justify-center">Cancelar</button>
+              <button
+                onClick={() => novoResponsavelTransfer && justificativaTransfer.trim() && transferirAtividade.mutate({ atividadeId: atividadeModal.id, novoResponsavelId: novoResponsavelTransfer, justificativa: justificativaTransfer.trim() })}
+                disabled={!novoResponsavelTransfer || !justificativaTransfer.trim() || transferirAtividade.isPending}
+                className="btn-primary flex-1 justify-center"
+              >
+                Transferir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de finalização (Bloco 5): texto obrigatório fixo definido pela especificação */}
+      {showFinalizar && atividadeModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h2 className="font-semibold text-gray-800">Finalizar tarefa</h2>
+              <button onClick={() => setShowFinalizar(false)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1 space-y-4">
+              <p className="text-sm font-medium text-gray-800">Adicione as informações das solicitações atendidas no GEP.</p>
+              <div>
+                <label className="label">Informações das solicitações atendidas no GEP *</label>
+                <textarea
+                  className="input min-h-24 resize-none"
+                  placeholder="Descreva o que foi realizado..."
+                  value={infoFinalizacao}
+                  onChange={e => setInfoFinalizacao(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-2">Documentos anexados</p>
+                {atividadeModal.documentos.length === 0 ? (
+                  <p className={`text-xs text-center py-2 rounded-lg ${atividadeModal.anexoObrigatorio ? 'bg-red-50 text-red-600' : 'text-gray-400'}`}>
+                    {atividadeModal.anexoObrigatorio ? 'Esta atividade exige ao menos um documento anexado antes de finalizar' : 'Nenhum documento anexado'}
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {atividadeModal.documentos.map(d => (
+                      <p key={d.id} className="text-xs text-gray-600 flex items-center gap-1.5"><FileText className="w-3 h-3" /> {d.nome}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-3 space-y-1">
+                <p className="text-xs font-medium text-gray-500">Resumo</p>
+                <p className="text-xs text-gray-600">GEP {demanda.gepNumero}/{demanda.gepAno} — {demanda.assunto}</p>
+                {atividadeModal.instrucoes && <p className="text-xs text-gray-600">Solicitação: {atividadeModal.instrucoes}</p>}
+              </div>
+            </div>
+            <div className="flex gap-3 p-5 border-t border-gray-100">
+              <button onClick={() => setShowFinalizar(false)} className="btn-secondary flex-1 justify-center">Voltar</button>
+              <button
+                onClick={() => infoFinalizacao.trim() && statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'CONCLUIDA', informacoesFinalizacao: infoFinalizacao.trim() })}
+                disabled={!infoFinalizacao.trim() || (atividadeModal.anexoObrigatorio && atividadeModal.documentos.length === 0) || statusAtividade.isPending}
+                className="btn-primary flex-1 justify-center"
+              >
+                Confirmar finalização
+              </button>
             </div>
           </div>
         </div>
