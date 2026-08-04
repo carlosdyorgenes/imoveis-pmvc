@@ -63,8 +63,8 @@ const DEMANDA_INCLUDE = {
   },
 }
 
-async function registrarHistorico(demandaId: string, userId: string, acao: string, descricao: string) {
-  await prisma.historicoDemanda.create({ data: { demandaId, userId, acao, descricao } })
+async function registrarHistorico(demandaId: string, userId: string, acao: string, descricao: string, atividadeId?: string) {
+  await prisma.historicoDemanda.create({ data: { demandaId, userId, acao, descricao, atividadeId } })
 }
 
 // Verifica se o usuário é responsável direto ou membro da equipe atribuída à atividade
@@ -281,7 +281,14 @@ demandasRouter.get('/:id', async (req: AuthRequest, res) => {
     tempos: calcularTemposAtividade(a.createdAt, a.dataInicio, a.dataConclusao),
   }))
 
-  res.json({ ...demanda, atividades: atividadesComTempos })
+  // Mesma lógica do isolamento de atividades: eventos do histórico presos a uma atividade
+  // de outra área (criação, status, transferência, documento anexado) ficam ocultos também.
+  const idsVisiveis = new Set(atividadesVisiveis.map(a => a.id))
+  const historicoVisivel = vePorCompleto
+    ? demanda.historico
+    : demanda.historico.filter(h => !h.atividadeId || idsVisiveis.has(h.atividadeId))
+
+  res.json({ ...demanda, atividades: atividadesComTempos, historico: historicoVisivel })
 })
 
 // Padrão de negócio do protocolo GEP: NUMERO/ANO (ex: 123456/2026) — validado em duas partes
@@ -361,7 +368,7 @@ demandasRouter.post('/', async (req: AuthRequest, res) => {
         },
       })
       const rotulo = primeiroGrupo.length > 1 ? `1ª etapa (paralela) do modelo "${tipo.nome}"` : `1ª etapa do modelo "${tipo.nome}"`
-      await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" (${rotulo}) criada automaticamente`)
+      await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" (${rotulo}) criada automaticamente`, atividade.id)
       if (etapaModelo.equipeId) {
         await notificarResponsaveis(atividade, 'ATIVIDADE_ATRIBUIDA', `Nova atividade "${atividade.titulo}" (GEP ${demanda.gepNumero}/${demanda.gepAno})`)
       }
@@ -479,7 +486,7 @@ demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
     await prisma.demanda.update({ where: { id: demanda.id }, data: { status: 'EM_ANDAMENTO' } })
   }
 
-  await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" atribuída a ${responsavelNome}`)
+  await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" atribuída a ${responsavelNome}`, atividade.id)
   await notificarResponsaveis(atividade, 'ATIVIDADE_ATRIBUIDA', `Nova atividade "${atividade.titulo}" (GEP ${demanda.gepNumero}/${demanda.gepAno})`)
   res.status(201).json(atividade)
 })
@@ -566,7 +573,7 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
     CANCELADA: `Atividade "${atividade.titulo}" cancelada`,
   }
 
-  await registrarHistorico(atividade.demandaId, req.user!.id, 'ATIVIDADE_STATUS', acaoDesc[status] || `Atividade "${atividade.titulo}" -> ${status}`)
+  await registrarHistorico(atividade.demandaId, req.user!.id, 'ATIVIDADE_STATUS', acaoDesc[status] || `Atividade "${atividade.titulo}" -> ${status}`, atividade.id)
 
   // Notificações por evento
   if (status === 'CONCLUIDA') {
@@ -643,7 +650,7 @@ demandasRouter.put('/atividades/:id/transferir', async (req: AuthRequest, res) =
   })
 
   const gep = `${atividade.demanda.gepNumero}/${atividade.demanda.gepAno}`
-  await registrarHistorico(atividade.demandaId, uid, 'ATIVIDADE_TRANSFERIDA', `Atividade "${atividade.titulo}" transferida para ${novoResponsavel.name}: ${justificativa.trim()}`)
+  await registrarHistorico(atividade.demandaId, uid, 'ATIVIDADE_TRANSFERIDA', `Atividade "${atividade.titulo}" transferida para ${novoResponsavel.name}: ${justificativa.trim()}`, atividade.id)
   await notificar(novoResponsavelId, 'ATIVIDADE_TRANSFERIDA', `Você recebeu a atividade "${atividade.titulo}" por transferência (GEP ${gep})`, { demandaId: atividade.demandaId, atividadeId: atividade.id })
   await notificar(atividade.solicitanteId, 'ATIVIDADE_TRANSFERIDA', `Atividade "${atividade.titulo}" foi transferida para ${novoResponsavel.name} (GEP ${gep})`, { demandaId: atividade.demandaId, atividadeId: atividade.id })
 
@@ -739,7 +746,7 @@ async function ativarProximaEtapaDoFluxo(demandaId: string, atividadeAprovadaId:
     })
 
     const rotulo = grupoSeguinte.length > 1 ? 'próxima etapa (paralela) do fluxo' : 'próxima etapa do fluxo'
-    await registrarHistorico(demandaId, userId, 'ATIVIDADE_CRIADA', `Atividade "${novaAtividade.titulo}" (${rotulo}) criada automaticamente`)
+    await registrarHistorico(demandaId, userId, 'ATIVIDADE_CRIADA', `Atividade "${novaAtividade.titulo}" (${rotulo}) criada automaticamente`, novaAtividade.id)
     if (etapaCompleta.equipeId) {
       await notificarResponsaveis(novaAtividade, 'ATIVIDADE_ATRIBUIDA', `Nova atividade "${novaAtividade.titulo}" (GEP ${demanda.gepNumero}/${demanda.gepAno})`)
     }
@@ -753,7 +760,7 @@ demandasRouter.delete('/atividades/:id', async (req: AuthRequest, res) => {
     throw new AppError('Somente quem criou a atividade (ou o Master) pode removê-la', 403)
   }
   await prisma.atividade.delete({ where: { id: atividade.id } })
-  await registrarHistorico(atividade.demandaId, req.user!.id, 'ATIVIDADE_REMOVIDA', `Atividade "${atividade.titulo}" removida`)
+  await registrarHistorico(atividade.demandaId, req.user!.id, 'ATIVIDADE_REMOVIDA', `Atividade "${atividade.titulo}" removida`, atividade.id)
   res.json({ message: 'Atividade removida' })
 })
 
@@ -836,7 +843,7 @@ demandasRouter.post('/atividades/:atividadeId/documentos', async (req: AuthReque
     data: { atividadeId: atividade.id, nome: nome.trim(), linkDrive: linkDrive.trim(), versao: versaoAnterior + 1, createdById: req.user!.id },
   })
 
-  await registrarHistorico(atividade.demandaId, req.user!.id, 'DOCUMENTO_ANEXADO', `Documento "${documento.nome}" (v${documento.versao}) anexado à atividade "${atividade.titulo}"`)
+  await registrarHistorico(atividade.demandaId, req.user!.id, 'DOCUMENTO_ANEXADO', `Documento "${documento.nome}" (v${documento.versao}) anexado à atividade "${atividade.titulo}"`, atividade.id)
   res.status(201).json(documento)
 })
 
@@ -874,7 +881,7 @@ demandasRouter.post('/atividades/:atividadeId/documentos/upload', (req: AuthRequ
     },
   })
 
-  await registrarHistorico(atividade.demandaId, req.user!.id, 'DOCUMENTO_ANEXADO', `Arquivo "${documento.nome}" (v${documento.versao}) enviado na atividade "${atividade.titulo}"`)
+  await registrarHistorico(atividade.demandaId, req.user!.id, 'DOCUMENTO_ANEXADO', `Arquivo "${documento.nome}" (v${documento.versao}) enviado na atividade "${atividade.titulo}"`, atividade.id)
   res.status(201).json(documento)
 })
 

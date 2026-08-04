@@ -323,12 +323,16 @@ model PassoAtividade {
 }
 
 model HistoricoDemanda {
-  id        String   @id @default(uuid())
-  demandaId String
-  userId    String?
-  acao      String
-  descricao String
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  demandaId   String
+  // Preenchido quando o evento é específico de uma atividade (ex: criada, status, transferida,
+  // documento anexado) — usado para ocultar esses eventos de usuários que não podem ver aquela
+  // atividade (isolamento entre áreas). Nulo para eventos do nível da demanda (todos veem).
+  atividadeId String?
+  userId      String?
+  acao        String
+  descricao   String
+  createdAt   DateTime @default(now())
 
   demanda Demanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)
 
