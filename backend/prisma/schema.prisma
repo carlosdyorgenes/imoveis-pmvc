@@ -42,19 +42,21 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  perfil                 Perfil?            @relation(fields: [perfilId], references: [id])
+  perfil                 Perfil?                  @relation(fields: [perfilId], references: [id])
   ocorrencias            Ocorrencia[]
   tarefaCards            TarefaCard[]
   logs                   Log[]
   tarefasCreated         Tarefa[]
-  solicitacoesSenha      SolicitacaoSenha[] @relation("SolicitacaoUser")
-  solicitacoesResolvidas SolicitacaoSenha[] @relation("SolicitacaoResolved")
-  demandasCriadas        Demanda[]          @relation("DemandaSolicitante")
-  atividadesResponsavel  Atividade[]        @relation("AtividadeResponsavel")
-  atividadesCriadas      Atividade[]        @relation("AtividadeSolicitante")
+  solicitacoesSenha      SolicitacaoSenha[]       @relation("SolicitacaoUser")
+  solicitacoesResolvidas SolicitacaoSenha[]       @relation("SolicitacaoResolved")
+  demandasCriadas        Demanda[]                @relation("DemandaSolicitante")
+  atividadesResponsavel  Atividade[]              @relation("AtividadeResponsavel")
+  atividadesCriadas      Atividade[]              @relation("AtividadeSolicitante")
   equipeMembros          EquipeMembro[]
   notificacoes           Notificacao[]
   comentarios            Comentario[]
+  transferenciasOrigem   HistoricoTransferencia[] @relation("TransferenciaDe")
+  transferenciasDestino  HistoricoTransferencia[] @relation("TransferenciaPara")
 
   @@map("users")
 }
@@ -118,10 +120,17 @@ model EquipeMembro {
 enum StatusDemanda {
   ABERTA
   EM_ANDAMENTO
+  PARCIALMENTE_CONCLUIDA
   AGUARDANDO_TERCEIRO
   DEVOLVIDA
   CONCLUIDA
   CANCELADA
+}
+
+enum PrioridadeDemanda {
+  ALTA
+  MEDIA
+  BAIXA
 }
 
 enum StatusAtividade {
@@ -131,22 +140,25 @@ enum StatusAtividade {
   DEVOLVIDA
   APROVADA
   CANCELADA
+  AGUARDANDO_INFORMACAO
+  REABERTA
 }
 
 model Demanda {
-  id            String        @id @default(uuid())
+  id            String            @id @default(uuid())
   gepNumero     String
   gepAno        String
   assunto       String
   descricao     String?
   interessado   String?
-  status        StatusDemanda @default(ABERTA)
+  status        StatusDemanda     @default(ABERTA)
+  prioridade    PrioridadeDemanda @default(MEDIA)
   prazo         DateTime?
-  escalonado    Boolean       @default(false)
+  escalonado    Boolean           @default(false)
   solicitanteId String
   tipoDemandaId String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
   solicitante        User               @relation("DemandaSolicitante", fields: [solicitanteId], references: [id])
   tipoDemanda        TipoDemanda?       @relation(fields: [tipoDemandaId], references: [id])
@@ -161,32 +173,56 @@ model Demanda {
 
 // Atividade é atribuída a um usuário OU a uma equipe (qualquer membro da equipe pode agir).
 model Atividade {
-  id              String          @id @default(uuid())
-  demandaId       String
-  titulo          String
-  instrucoes      String?
-  responsavelId   String?
-  equipeId        String?
-  solicitanteId   String
+  id                     String          @id @default(uuid())
+  demandaId              String
+  titulo                 String
+  instrucoes             String?
+  responsavelId          String?
+  equipeId               String?
+  solicitanteId          String
   // Preenchida quando a atividade foi gerada automaticamente por um TipoDemanda/ModeloEtapa
   // (motor de fluxo). Usada para saber qual é a "próxima etapa" a ativar quando esta é aprovada.
-  modeloEtapaId   String?
-  status          StatusAtividade @default(ATRIBUIDA)
-  prazo           DateTime?
-  observacoes     String?
-  motivoDevolucao String?
-  linkDocumento   String?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  modeloEtapaId          String?
+  status                 StatusAtividade @default(ATRIBUIDA)
+  prazo                  DateTime?
+  observacoes            String?
+  motivoDevolucao        String?
+  linkDocumento          String?
+  // Sim/não a atividade exige PDF anexado para poder ser finalizada.
+  anexoObrigatorio       Boolean         @default(false)
+  // Marcados na transição de status (não recalculados) — base para os indicadores de tempo.
+  dataInicio             DateTime?
+  dataConclusao          DateTime?
+  // Texto obrigatório preenchido no modal de finalização ("informações das solicitações atendidas no GEP").
+  informacoesFinalizacao String?
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
 
-  demanda     Demanda              @relation(fields: [demandaId], references: [id], onDelete: Cascade)
-  responsavel User?                @relation("AtividadeResponsavel", fields: [responsavelId], references: [id])
-  equipe      Equipe?              @relation(fields: [equipeId], references: [id])
-  solicitante User                 @relation("AtividadeSolicitante", fields: [solicitanteId], references: [id])
-  passos      PassoAtividade[]
-  documentos  DocumentoAtividade[]
+  demanda        Demanda                  @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  responsavel    User?                    @relation("AtividadeResponsavel", fields: [responsavelId], references: [id])
+  equipe         Equipe?                  @relation(fields: [equipeId], references: [id])
+  solicitante    User                     @relation("AtividadeSolicitante", fields: [solicitanteId], references: [id])
+  passos         PassoAtividade[]
+  documentos     DocumentoAtividade[]
+  transferencias HistoricoTransferencia[]
 
   @@map("atividades")
+}
+
+// Registro imutável de cada transferência de atividade entre usuários da mesma equipe.
+model HistoricoTransferencia {
+  id            String   @id @default(uuid())
+  atividadeId   String
+  deUsuarioId   String
+  paraUsuarioId String
+  justificativa String
+  createdAt     DateTime @default(now())
+
+  atividade   Atividade @relation(fields: [atividadeId], references: [id], onDelete: Cascade)
+  deUsuario   User      @relation("TransferenciaDe", fields: [deUsuarioId], references: [id])
+  paraUsuario User      @relation("TransferenciaPara", fields: [paraUsuarioId], references: [id])
+
+  @@map("historico_transferencias")
 }
 
 model TipoDemanda {

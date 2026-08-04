@@ -12,6 +12,7 @@ import { extrairParagrafosDocx, extrairItensCandidatos } from '../utils/docxPars
 import { previewImportacao } from '../data/previewImportacao'
 import { TRANSICOES_DEMANDA, TRANSICOES_ATIVIDADE, transicaoValida, AÇÕES_DO_RESPONSAVEL, AÇÕES_DO_SOLICITANTE } from '../domain/estados'
 import { etapasDoMesmoGrupo, proximoGrupo, grupoCompleto } from '../domain/motorFluxo'
+import { calcularTemposAtividade } from '../domain/tempos'
 
 export const demandasRouter = Router()
 demandasRouter.use(authenticate)
@@ -150,15 +151,71 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
   })
 })
 
+// Fila do usuário: prioridade (Alta > Média > Baixa) sempre antes de antiguidade — uma tarefa
+// Alta recém-chegada aparece antes de uma Média ou Baixa mais antiga. Dentro da mesma
+// prioridade, a atribuição mais antiga vem primeiro (FIFO). Ordenado em memória porque a
+// ordem de prioridade não é alfabética (ALTA < BAIXA < MEDIA por ordem alfabética, mas a
+// regra de negócio é ALTA > MEDIA > BAIXA).
+const PESO_PRIORIDADE: Record<string, number> = { ALTA: 0, MEDIA: 1, BAIXA: 2 }
+
+// Fila do usuário (Seção 13): por padrão só o que está ativo (pendente/em andamento);
+// ?todas=true traz também Devolvida/Concluída/Aprovada/Reaberta para as abas de
+// histórico da tela "Minha Fila" no frontend.
+demandasRouter.get('/atividades/minhas', async (req: AuthRequest, res) => {
+  const uid = req.user!.id
+  const todas = req.query.todas === 'true'
+  const minhasEquipes = await prisma.equipeMembro.findMany({ where: { userId: uid }, select: { equipeId: true } })
+  const equipeIds = minhasEquipes.map(m => m.equipeId)
+
+  const statusFiltro = todas
+    ? { not: 'CANCELADA' as const }
+    : { in: ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'] as Array<'ATRIBUIDA' | 'EM_ANDAMENTO' | 'AGUARDANDO_INFORMACAO' | 'REABERTA'> }
+
+  const atividades = await prisma.atividade.findMany({
+    where: {
+      status: statusFiltro,
+      OR: [{ responsavelId: uid }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds } }] : [])],
+    },
+    include: {
+      demanda: { select: { id: true, gepNumero: true, gepAno: true, assunto: true, prioridade: true } },
+      equipe: { select: { id: true, nome: true } },
+      solicitante: { select: { id: true, name: true } },
+    },
+  })
+
+  // A regra de prioridade + antiguidade (Seção 12) só rege a fila do que está pendente de ação;
+  // fora dela, ordena por mais recente primeiro (uso puramente de consulta/histórico).
+  atividades.sort((a, b) => {
+    const ativaA = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'].includes(a.status)
+    const ativaB = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'].includes(b.status)
+    if (ativaA && ativaB) {
+      const pa = PESO_PRIORIDADE[a.demanda.prioridade] ?? 1
+      const pb = PESO_PRIORIDADE[b.demanda.prioridade] ?? 1
+      if (pa !== pb) return pa - pb
+      return a.createdAt.getTime() - b.createdAt.getTime()
+    }
+    if (ativaA !== ativaB) return ativaA ? -1 : 1
+    return b.createdAt.getTime() - a.createdAt.getTime()
+  })
+
+  const comTempos = atividades.map(a => ({
+    ...a,
+    tempos: calcularTemposAtividade(a.createdAt, a.dataInicio, a.dataConclusao),
+  }))
+
+  res.json(comTempos)
+})
+
 // ===== Demandas =====
 
 demandasRouter.get('/', async (req, res) => {
   await escalonarPrazosVencidos()
-  const { status, gep, tipoDemandaId, responsavelId, atrasadas } = req.query as Record<string, string>
+  const { status, gep, tipoDemandaId, responsavelId, atrasadas, prioridade } = req.query as Record<string, string>
   const where: Record<string, unknown> = {}
   if (status) where.status = status
   if (gep) where.gepNumero = { contains: gep, mode: 'insensitive' }
   if (tipoDemandaId) where.tipoDemandaId = tipoDemandaId
+  if (prioridade) where.prioridade = prioridade
   if (atrasadas === 'true') {
     where.prazo = { lt: new Date() }
     where.status = { notIn: ['CONCLUIDA', 'CANCELADA'] }
@@ -185,15 +242,39 @@ demandasRouter.get('/:id', async (req, res) => {
     include: DEMANDA_INCLUDE,
   })
   if (!demanda) throw new AppError('Demanda não encontrada', 404)
-  res.json(demanda)
+
+  const atividadesComTempos = demanda.atividades.map(a => ({
+    ...a,
+    tempos: calcularTemposAtividade(a.createdAt, a.dataInicio, a.dataConclusao),
+  }))
+
+  res.json({ ...demanda, atividades: atividadesComTempos })
 })
 
-demandasRouter.post('/', async (req: AuthRequest, res) => {
-  const { gepNumero, gepAno, assunto, descricao, interessado, prazo, tipoDemandaId } = req.body
-  if (!gepNumero?.trim() || !gepAno?.trim()) throw new AppError('Número e ano do GEP são obrigatórios')
-  if (!assunto?.trim()) throw new AppError('Assunto é obrigatório')
+// Padrão de negócio do protocolo GEP: NUMERO/ANO (ex: 123456/2026) — validado em duas partes
+// porque gepNumero e gepAno são colunas separadas no banco (id técnico é o uuid, não o GEP).
+const GEP_NUMERO_REGEX = /^\d+$/
+const GEP_ANO_REGEX = /^\d{4}$/
 
-  const existente = await prisma.demanda.findFirst({ where: { gepNumero: gepNumero.trim(), gepAno: gepAno.trim() } })
+demandasRouter.post('/', async (req: AuthRequest, res) => {
+  const { gepNumero: gepNumeroRaw, gepAno: gepAnoRaw, assunto, descricao, interessado, prazo, tipoDemandaId, prioridade, confirmarDuplicado } = req.body
+  const gepNumero = (gepNumeroRaw || '').trim().replace(/\s+/g, '')
+  const gepAno = (gepAnoRaw || '').trim().replace(/\s+/g, '')
+  if (!gepNumero || !gepAno) throw new AppError('Número e ano do GEP são obrigatórios')
+  if (!GEP_NUMERO_REGEX.test(gepNumero)) throw new AppError('Número do GEP deve conter somente dígitos')
+  if (!GEP_ANO_REGEX.test(gepAno)) throw new AppError('Ano do GEP deve ter 4 dígitos')
+  if (!assunto?.trim()) throw new AppError('Assunto é obrigatório')
+  if (prioridade && !['ALTA', 'MEDIA', 'BAIXA'].includes(prioridade)) throw new AppError('Prioridade inválida')
+
+  const existente = await prisma.demanda.findFirst({ where: { gepNumero, gepAno } })
+  // GEP duplicado nunca é criado silenciosamente: a primeira tentativa apenas avisa e devolve
+  // o registro existente; só cria mesmo assim se o usuário confirmar explicitamente a segunda vez.
+  if (existente && !confirmarDuplicado) {
+    return res.status(409).json({
+      error: `Já existe uma demanda com o GEP ${gepNumero}/${gepAno}`,
+      demandaExistenteId: existente.id,
+    })
+  }
 
   let prazoFinal = prazo ? new Date(prazo) : null
   let tipo = null as { id: string; nome: string; prazoPadraoDias: number | null; etapasModelo: { id: string; titulo: string; instrucoes: string | null; ordem: number; equipeId: string | null; prazoDias: number | null }[] } | null
@@ -208,12 +289,13 @@ demandasRouter.post('/', async (req: AuthRequest, res) => {
 
   const demanda = await prisma.demanda.create({
     data: {
-      gepNumero: gepNumero.trim(),
-      gepAno: gepAno.trim(),
+      gepNumero,
+      gepAno,
       assunto: assunto.trim(),
       descricao,
       interessado,
       prazo: prazoFinal,
+      prioridade: prioridade || 'MEDIA',
       solicitanteId: req.user!.id,
       tipoDemandaId: tipo?.id,
     },
@@ -254,10 +336,7 @@ demandasRouter.post('/', async (req: AuthRequest, res) => {
     await prisma.demanda.update({ where: { id: demanda.id }, data: { status: 'EM_ANDAMENTO' } })
   }
 
-  res.status(201).json({
-    ...demanda,
-    avisoGepDuplicado: existente ? `Já existe uma demanda com o GEP ${demanda.gepNumero}/${demanda.gepAno} (${existente.id})` : null,
-  })
+  res.status(201).json(demanda)
 })
 
 demandasRouter.put('/:id', async (req: AuthRequest, res) => {
@@ -267,16 +346,21 @@ demandasRouter.put('/:id', async (req: AuthRequest, res) => {
     throw new AppError('Somente quem criou a demanda (ou o Master) pode editá-la', 403)
   }
 
-  const { assunto, descricao, interessado, prazo } = req.body
+  const { assunto, descricao, interessado, prazo, prioridade } = req.body
+  if (prioridade && !['ALTA', 'MEDIA', 'BAIXA'].includes(prioridade)) throw new AppError('Prioridade inválida')
   const novoPrazo = prazo ? new Date(prazo) : null
   const prazoMudou = String(existente.prazo) !== String(novoPrazo)
   const demanda = await prisma.demanda.update({
     where: { id: req.params.id },
     data: {
       assunto, descricao, interessado, prazo: novoPrazo,
+      ...(prioridade ? { prioridade } : {}),
       ...(prazoMudou ? { escalonado: false } : {}),
     },
   })
+  if (prioridade && prioridade !== existente.prioridade) {
+    await registrarHistorico(demanda.id, req.user!.id, 'PRIORIDADE', `Prioridade alterada de ${existente.prioridade} para ${prioridade}`)
+  }
   await registrarHistorico(demanda.id, req.user!.id, 'EDICAO', 'Dados da demanda atualizados')
   res.json(demanda)
 })
@@ -321,7 +405,7 @@ demandasRouter.put('/:id/status', async (req: AuthRequest, res) => {
 // ===== Atividades =====
 
 demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
-  const { titulo, instrucoes, responsavelId, equipeId, prazo } = req.body
+  const { titulo, instrucoes, responsavelId, equipeId, prazo, anexoObrigatorio } = req.body
   if (!titulo?.trim()) throw new AppError('Título da atividade é obrigatório')
   if (!responsavelId && !equipeId) throw new AppError('Informe um responsável ou uma equipe')
 
@@ -353,6 +437,7 @@ demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
       equipeId: equipeId || null,
       solicitanteId: req.user!.id,
       prazo: prazo ? new Date(prazo) : null,
+      anexoObrigatorio: !!anexoObrigatorio,
     },
     include: { responsavel: { select: { id: true, name: true } }, equipe: { select: { id: true, nome: true } }, passos: true, documentos: true },
   })
@@ -367,10 +452,10 @@ demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
 })
 
 demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
-  const { status, motivo, observacoes, linkDocumento } = req.body
+  const { status, motivo, observacoes, linkDocumento, informacoesFinalizacao } = req.body
   const atividade = await prisma.atividade.findUnique({
     where: { id: req.params.id },
-    include: { demanda: { select: { id: true, assunto: true, gepNumero: true, gepAno: true } } },
+    include: { demanda: { select: { id: true, assunto: true, gepNumero: true, gepAno: true } }, documentos: true },
   })
   if (!atividade) throw new AppError('Atividade não encontrada', 404)
 
@@ -386,10 +471,10 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
   const isMaster = req.user!.role === 'MASTER'
 
   if (!isMaster) {
-    if (AÇÕES_DO_RESPONSAVEL.includes(status) && !isResponsavel) {
+    if ([...AÇÕES_DO_RESPONSAVEL, 'AGUARDANDO_INFORMACAO'].includes(status) && !isResponsavel) {
       throw new AppError('Somente o responsável pela atividade pode executar esta ação', 403)
     }
-    if (AÇÕES_DO_SOLICITANTE.includes(status) && !isSolicitante) {
+    if ([...AÇÕES_DO_SOLICITANTE, 'REABERTA'].includes(status) && !isSolicitante) {
       throw new AppError('Somente o solicitante da atividade pode executar esta ação', 403)
     }
     if (status === 'CANCELADA' && !isResponsavel && !isSolicitante) {
@@ -403,13 +488,26 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
     if (pendentes > 0 && !motivo) {
       throw new AppError(`Há ${pendentes} passo(s) pendente(s). Informe uma justificativa para concluir mesmo assim.`)
     }
+    // Finalização (Bloco 5): exige o texto "informações das solicitações atendidas no GEP" e,
+    // quando a atividade foi marcada com anexo obrigatório, exige ao menos um documento anexado.
+    if (!informacoesFinalizacao?.trim()) {
+      throw new AppError('Informe as informações das solicitações atendidas no GEP')
+    }
+    if (atividade.anexoObrigatorio && atividade.documentos.length === 0) {
+      throw new AppError('Esta atividade exige ao menos um documento anexado para ser finalizada')
+    }
   }
 
   // Devolução exige motivo
   if (status === 'DEVOLVIDA' && !motivo?.trim()) {
     throw new AppError('Informe o motivo da devolução')
   }
+  // Reabertura exige justificativa (permissão já garantida acima — só o solicitante ou MASTER chegam aqui)
+  if (status === 'REABERTA' && !motivo?.trim()) {
+    throw new AppError('Informe a justificativa da reabertura')
+  }
 
+  const agora = new Date()
   const atualizada = await prisma.atividade.update({
     where: { id: atividade.id },
     data: {
@@ -417,6 +515,9 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
       ...(observacoes !== undefined ? { observacoes } : {}),
       ...(linkDocumento !== undefined ? { linkDocumento } : {}),
       ...(status === 'DEVOLVIDA' ? { motivoDevolucao: motivo } : {}),
+      ...(status === 'EM_ANDAMENTO' && !atividade.dataInicio ? { dataInicio: agora } : {}),
+      ...(status === 'CONCLUIDA' ? { dataConclusao: agora, informacoesFinalizacao } : {}),
+      ...(status === 'REABERTA' ? { dataConclusao: null, motivoDevolucao: motivo } : {}),
     },
     include: { responsavel: { select: { id: true, name: true } }, equipe: { select: { id: true, nome: true } }, passos: { orderBy: { ordem: 'asc' } }, documentos: true },
   })
@@ -424,9 +525,11 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
   const gep = `${atividade.demanda.gepNumero}/${atividade.demanda.gepAno}`
   const acaoDesc: Record<string, string> = {
     EM_ANDAMENTO: `Atividade "${atividade.titulo}" iniciada`,
-    CONCLUIDA: `Atividade "${atividade.titulo}" concluída e devolvida ao solicitante${motivo ? ` (obs: ${motivo})` : ''}`,
+    AGUARDANDO_INFORMACAO: `Atividade "${atividade.titulo}" aguardando informação${motivo ? `: ${motivo}` : ''}`,
+    CONCLUIDA: `Atividade "${atividade.titulo}" concluída e devolvida ao solicitante`,
     APROVADA: `Atividade "${atividade.titulo}" aprovada pelo solicitante`,
     DEVOLVIDA: `Atividade "${atividade.titulo}" devolvida para correção: ${motivo}`,
+    REABERTA: `Atividade "${atividade.titulo}" reaberta: ${motivo}`,
     CANCELADA: `Atividade "${atividade.titulo}" cancelada`,
   }
 
@@ -439,13 +542,110 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
   if (status === 'DEVOLVIDA') {
     await notificarResponsaveis(atividade, 'ATIVIDADE_DEVOLVIDA', `Atividade "${atividade.titulo}" foi devolvida para correção (GEP ${gep}): ${motivo}`)
   }
+  if (status === 'REABERTA') {
+    await notificarResponsaveis(atividade, 'ATIVIDADE_REABERTA', `Atividade "${atividade.titulo}" foi reaberta (GEP ${gep}): ${motivo}`)
+  }
   if (status === 'APROVADA') {
     await notificarResponsaveis(atividade, 'ATIVIDADE_APROVADA', `Sua atividade "${atividade.titulo}" foi aprovada (GEP ${gep})`)
     await ativarProximaEtapaDoFluxo(atividade.demandaId, atividade.id, req.user!.id)
   }
 
+  if (['CONCLUIDA', 'APROVADA', 'REABERTA', 'CANCELADA'].includes(status)) {
+    await atualizarStatusConformeAtividades(atividade.demandaId)
+  }
+
   res.json(atualizada)
 })
+
+// Transferência: só entre usuários ATIVOS da MESMA equipe/área do responsável atual — um
+// usuário comum nunca pode transferir para outra área (só o MASTER pode, como override
+// administrativo). Preserva dataInicio (tempo transcorrido não é reiniciado) e todo o
+// histórico anterior; grava um registro imutável em HistoricoTransferencia.
+demandasRouter.put('/atividades/:id/transferir', async (req: AuthRequest, res) => {
+  const { novoResponsavelId, justificativa } = req.body
+  if (!novoResponsavelId) throw new AppError('Informe o novo responsável')
+  if (!justificativa?.trim()) throw new AppError('Informe a justificativa da transferência')
+
+  const atividade = await prisma.atividade.findUnique({
+    where: { id: req.params.id },
+    include: { demanda: { select: { id: true, gepNumero: true, gepAno: true } } },
+  })
+  if (!atividade) throw new AppError('Atividade não encontrada', 404)
+  if (['APROVADA', 'CANCELADA'].includes(atividade.status)) {
+    throw new AppError('Não é possível transferir uma atividade já finalizada')
+  }
+
+  const uid = req.user!.id
+  const isMaster = req.user!.role === 'MASTER'
+  const isResponsavelAtual = await isResponsavelDaAtividade(uid, atividade)
+  if (!isMaster && !isResponsavelAtual) {
+    throw new AppError('Somente o responsável atual (ou o Master) pode transferir esta atividade', 403)
+  }
+
+  const novoResponsavel = await prisma.user.findUnique({ where: { id: novoResponsavelId } })
+  if (!novoResponsavel || !novoResponsavel.active) throw new AppError('Novo responsável inválido ou inativo')
+
+  if (!isMaster) {
+    if (!atividade.equipeId) {
+      throw new AppError('Esta atividade não pertence a uma área/equipe — não é possível transferir')
+    }
+    const membroDestino = await prisma.equipeMembro.findUnique({
+      where: { equipeId_userId: { equipeId: atividade.equipeId, userId: novoResponsavelId } },
+    })
+    if (!membroDestino) throw new AppError('O novo responsável precisa ser membro da mesma área/equipe')
+  }
+
+  const responsavelAnteriorId = atividade.responsavelId || uid
+
+  const atualizada = await prisma.$transaction(async tx => {
+    const a = await tx.atividade.update({
+      where: { id: atividade.id },
+      data: { responsavelId: novoResponsavelId },
+      include: { responsavel: { select: { id: true, name: true } }, equipe: { select: { id: true, nome: true } }, passos: { orderBy: { ordem: 'asc' } }, documentos: true },
+    })
+    await tx.historicoTransferencia.create({
+      data: { atividadeId: atividade.id, deUsuarioId: responsavelAnteriorId, paraUsuarioId: novoResponsavelId, justificativa: justificativa.trim() },
+    })
+    return a
+  })
+
+  const gep = `${atividade.demanda.gepNumero}/${atividade.demanda.gepAno}`
+  await registrarHistorico(atividade.demandaId, uid, 'ATIVIDADE_TRANSFERIDA', `Atividade "${atividade.titulo}" transferida para ${novoResponsavel.name}: ${justificativa.trim()}`)
+  await notificar(novoResponsavelId, 'ATIVIDADE_TRANSFERIDA', `Você recebeu a atividade "${atividade.titulo}" por transferência (GEP ${gep})`, { demandaId: atividade.demandaId, atividadeId: atividade.id })
+  await notificar(atividade.solicitanteId, 'ATIVIDADE_TRANSFERIDA', `Atividade "${atividade.titulo}" foi transferida para ${novoResponsavel.name} (GEP ${gep})`, { demandaId: atividade.demandaId, atividadeId: atividade.id })
+
+  res.json(atualizada)
+})
+
+// Deriva o status geral da demanda a partir do conjunto de atividades ativas (não canceladas):
+// todas aprovadas -> Concluída; algumas aprovadas e outras ainda em curso -> Parcialmente
+// concluída; nenhuma aprovada ainda -> não mexe (mantém EM_ANDAMENTO/ABERTA como está).
+// Não sobrescreve demandas já Concluídas/Canceladas/Arquivadas manualmente.
+async function atualizarStatusConformeAtividades(demandaId: string) {
+  const demanda = await prisma.demanda.findUnique({ where: { id: demandaId } })
+  if (!demanda || ['CONCLUIDA', 'CANCELADA'].includes(demanda.status)) return
+
+  const ativas = await prisma.atividade.findMany({ where: { demandaId, status: { not: 'CANCELADA' } } })
+  if (ativas.length === 0) return
+
+  const todasAprovadas = ativas.every(a => a.status === 'APROVADA')
+  const algumaAprovada = ativas.some(a => a.status === 'APROVADA')
+
+  let novoStatus: string | null = null
+  if (todasAprovadas) novoStatus = 'CONCLUIDA'
+  else if (algumaAprovada && demanda.status !== 'PARCIALMENTE_CONCLUIDA') novoStatus = 'PARCIALMENTE_CONCLUIDA'
+  else if (!algumaAprovada && demanda.status === 'PARCIALMENTE_CONCLUIDA') novoStatus = 'EM_ANDAMENTO'
+
+  if (novoStatus && novoStatus !== demanda.status) {
+    await prisma.demanda.update({ where: { id: demandaId }, data: { status: novoStatus as any } })
+    const descricao = novoStatus === 'CONCLUIDA'
+      ? 'Todas as tarefas ativas foram aprovadas — demanda concluída automaticamente'
+      : novoStatus === 'PARCIALMENTE_CONCLUIDA'
+        ? 'Parte das tarefas foi aprovada — demanda parcialmente concluída'
+        : 'Demanda voltou para em andamento'
+    await registrarHistorico(demandaId, demanda.solicitanteId, 'STATUS', descricao)
+  }
+}
 
 // Motor de fluxo: quando uma atividade gerada por um ModeloEtapa é aprovada, cria
 // automaticamente a atividade da próxima etapa do mesmo TipoDemanda (dependência sequencial

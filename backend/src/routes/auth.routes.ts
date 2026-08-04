@@ -5,18 +5,35 @@ import { prisma } from '../lib/prisma'
 import { AppError } from '../middleware/errorHandler'
 import { createLog } from '../utils/logger'
 import { authenticate, requireMaster, AuthRequest } from '../middleware/auth'
+import { novoEstado, verificarBloqueio, registrarFalha, registrarSucesso, EstadoTentativas } from '../domain/loginRateLimit'
 
 export const authRouter = Router()
+
+// Estado em memória por e-mail (chave normalizada em minúsculas) — ver domain/loginRateLimit.ts
+const tentativasPorEmail = new Map<string, EstadoTentativas>()
 
 authRouter.post('/login', async (req, res) => {
   const { email, password } = req.body
   if (!email || !password) throw new AppError('Email e senha são obrigatórios')
 
-  const user = await prisma.user.findUnique({ where: { email } })
-  if (!user || !user.active) throw new AppError('Credenciais inválidas', 401)
+  const chave = String(email).trim().toLowerCase()
+  const agora = Date.now()
+  const estadoAtual = tentativasPorEmail.get(chave) || novoEstado()
+  const { bloqueado, segundosRestantes } = verificarBloqueio(estadoAtual, agora)
+  if (bloqueado) {
+    const minutos = Math.ceil(segundosRestantes / 60)
+    throw new AppError(`Muitas tentativas de login. Tente novamente em ${minutos} minuto(s).`, 429)
+  }
 
-  const valid = await bcrypt.compare(password, user.password)
-  if (!valid) throw new AppError('Credenciais inválidas', 401)
+  const user = await prisma.user.findUnique({ where: { email } })
+  const valid = user && user.active && (await bcrypt.compare(password, user.password))
+
+  if (!valid) {
+    tentativasPorEmail.set(chave, registrarFalha(estadoAtual, agora))
+    throw new AppError('Credenciais inválidas', 401)
+  }
+
+  tentativasPorEmail.set(chave, registrarSucesso())
 
   const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET!, { expiresIn: '8h' })
 

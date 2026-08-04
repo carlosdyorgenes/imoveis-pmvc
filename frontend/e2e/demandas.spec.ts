@@ -29,22 +29,29 @@ test.describe('Módulo de Demandas', () => {
     await expect(page.locator(`text=${gepNumero}/2099`)).toBeVisible({ timeout: 10_000 })
   })
 
-  test('demanda com GEP duplicado exibe aviso, mas não bloqueia', async ({ page }) => {
+  test('GEP duplicado bloqueia a criação silenciosa e exige confirmação explícita', async ({ page }) => {
     await login(page)
     await page.goto('/demandas')
 
     const gepNumero = `${E2E_PREFIX}${Date.now()}`
-    const criar = async () => {
+    const abrirEPreencher = async (assunto: string) => {
       await page.getByRole('button', { name: /Nova Demanda/i }).click()
       await page.getByPlaceholder('126158').fill(gepNumero)
       await page.getByPlaceholder('2025').fill('2099')
-      await page.getByPlaceholder(/Revalidação de alvará/i).fill('Teste duplicidade')
-      await page.getByRole('button', { name: /^Criar$/i }).click()
-      await expect(page.locator(`text=${gepNumero}/2099`).first()).toBeVisible({ timeout: 10_000 })
+      await page.getByPlaceholder(/Revalidação de alvará/i).fill(assunto)
     }
 
-    await criar()
-    await criar() // segunda vez com o mesmo GEP: deve avisar, não travar
+    await abrirEPreencher('Teste duplicidade — original')
+    await page.getByRole('button', { name: /^Criar$/i }).click()
+    await expect(page.locator(`text=${gepNumero}/2099`).first()).toBeVisible({ timeout: 10_000 })
+
+    // Segunda tentativa com o mesmo GEP: não deve criar silenciosamente, deve avisar e pedir confirmação.
+    await abrirEPreencher('Teste duplicidade — segunda tentativa')
+    await page.getByRole('button', { name: /^Criar$/i }).click()
+    await expect(page.locator('text=Já existe uma demanda com o GEP')).toBeVisible({ timeout: 10_000 })
+
+    await page.getByRole('button', { name: /Criar mesmo assim/i }).click()
+    await expect(page.locator(`text=${gepNumero}/2099`).first()).toBeVisible({ timeout: 10_000 })
   })
 
   test('abre o detalhe da demanda e adiciona um comentário', async ({ page }) => {
