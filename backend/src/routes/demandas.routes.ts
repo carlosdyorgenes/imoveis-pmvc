@@ -960,26 +960,47 @@ demandasRouter.post('/:demandaId/pendencias', async (req: AuthRequest, res) => {
   res.status(201).json(pendencia)
 })
 
+async function assertPodeGerenciarPendencia(req: AuthRequest, demandaId: string) {
+  if (req.user!.role === 'MASTER') return
+  const demanda = await prisma.demanda.findUnique({ where: { id: demandaId }, select: { solicitanteId: true } })
+  if (!demanda || demanda.solicitanteId !== req.user!.id) {
+    throw new AppError('Somente quem abriu a demanda (ou o Master) pode gerenciar pendências externas', 403)
+  }
+}
+
 demandasRouter.put('/pendencias/:id', async (req: AuthRequest, res) => {
-  const { status, resposta } = req.body
+  const { status, resposta, orgao, descricao, protocolo, prazoEsperado } = req.body
   const pendencia = await prisma.pendenciaExterna.findUnique({ where: { id: req.params.id } })
   if (!pendencia) throw new AppError('Pendência não encontrada', 404)
+  await assertPodeGerenciarPendencia(req, pendencia.demandaId)
+  if (orgao !== undefined && !orgao.trim()) throw new AppError('Órgão é obrigatório')
+  if (descricao !== undefined && !descricao.trim()) throw new AppError('Descrição é obrigatória')
 
   const atualizada = await prisma.pendenciaExterna.update({
     where: { id: pendencia.id },
     data: {
       ...(status ? { status } : {}),
       ...(resposta !== undefined ? { resposta } : {}),
+      ...(orgao !== undefined ? { orgao: orgao.trim() } : {}),
+      ...(descricao !== undefined ? { descricao: descricao.trim() } : {}),
+      ...(protocolo !== undefined ? { protocolo } : {}),
+      ...(prazoEsperado !== undefined ? { prazoEsperado: prazoEsperado ? new Date(prazoEsperado) : null } : {}),
       ...(status === 'COBRADA' ? { ultimaCobranca: new Date() } : {}),
     },
   })
 
-  await registrarHistorico(pendencia.demandaId, req.user!.id, 'PENDENCIA_EXTERNA', `Pendência de ${pendencia.orgao}: status -> ${status || pendencia.status}`)
+  const descAcao = status ? `status -> ${status}` : 'dados atualizados'
+  await registrarHistorico(pendencia.demandaId, req.user!.id, 'PENDENCIA_EXTERNA', `Pendência de ${pendencia.orgao}: ${descAcao}`)
   res.json(atualizada)
 })
 
 demandasRouter.delete('/pendencias/:id', async (req: AuthRequest, res) => {
-  await prisma.pendenciaExterna.delete({ where: { id: req.params.id } })
+  const pendencia = await prisma.pendenciaExterna.findUnique({ where: { id: req.params.id } })
+  if (!pendencia) throw new AppError('Pendência não encontrada', 404)
+  await assertPodeGerenciarPendencia(req, pendencia.demandaId)
+
+  await prisma.pendenciaExterna.delete({ where: { id: pendencia.id } })
+  await registrarHistorico(pendencia.demandaId, req.user!.id, 'PENDENCIA_EXTERNA', `Pendência de ${pendencia.orgao} removida`)
   res.json({ message: 'Pendência removida' })
 })
 

@@ -79,6 +79,11 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [pDescricao, setPDescricao] = useState('')
   const [pProtocolo, setPProtocolo] = useState('')
 
+  const [pendenciaEditando, setPendenciaEditando] = useState<string | null>(null)
+  const [pOrgaoEdicao, setPOrgaoEdicao] = useState('')
+  const [pDescricaoEdicao, setPDescricaoEdicao] = useState('')
+  const [pProtocoloEdicao, setPProtocoloEdicao] = useState('')
+
   const [novoComentario, setNovoComentario] = useState('')
 
   const { data: demanda, isLoading } = useQuery<Demanda>({
@@ -225,6 +230,19 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     mutationFn: (pendId: string) => api.put(`/api/demandas/pendencias/${pendId}`, { status: 'RESPONDIDA' }),
     onSuccess: () => { invalidar(); toast.success('Pendência marcada como respondida') },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao atualizar pendência'))
+  })
+
+  const editarPendencia = useMutation({
+    mutationFn: ({ id, orgao, descricao, protocolo }: { id: string; orgao: string; descricao: string; protocolo: string }) =>
+      api.put(`/api/demandas/pendencias/${id}`, { orgao, descricao, protocolo }),
+    onSuccess: () => { invalidar(); setPendenciaEditando(null); toast.success('Pendência atualizada') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao editar pendência'))
+  })
+
+  const excluirPendencia = useMutation({
+    mutationFn: (id: string) => api.delete(`/api/demandas/pendencias/${id}`),
+    onSuccess: () => { invalidar(); toast.success('Pendência removida') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao excluir pendência'))
   })
 
   const addComentario = useMutation({
@@ -418,7 +436,28 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
             <p className="text-xs text-gray-400 text-center py-3">Nenhuma pendência externa registrada</p>
           ) : (
             <div className="space-y-2">
-              {(demanda.pendenciasExternas || []).map(p => (
+              {(demanda.pendenciasExternas || []).map(p => {
+                const podeGerenciarPendencia = isMaster || demanda.solicitante.id === user?.id
+                if (pendenciaEditando === p.id) {
+                  return (
+                    <div key={p.id} className="card py-3 space-y-2">
+                      <input className="input text-sm" placeholder="Órgão / Pessoa" value={pOrgaoEdicao} onChange={e => setPOrgaoEdicao(e.target.value)} autoFocus />
+                      <textarea className="input text-sm min-h-16 resize-none" placeholder="Descrição" value={pDescricaoEdicao} onChange={e => setPDescricaoEdicao(e.target.value)} />
+                      <input className="input text-sm" placeholder="Protocolo (opcional)" value={pProtocoloEdicao} onChange={e => setPProtocoloEdicao(e.target.value)} />
+                      <div className="flex gap-2">
+                        <button onClick={() => setPendenciaEditando(null)} className="btn-secondary flex-1 justify-center text-xs">Cancelar</button>
+                        <button
+                          onClick={() => pOrgaoEdicao.trim() && pDescricaoEdicao.trim() && editarPendencia.mutate({ id: p.id, orgao: pOrgaoEdicao.trim(), descricao: pDescricaoEdicao.trim(), protocolo: pProtocoloEdicao })}
+                          disabled={!pOrgaoEdicao.trim() || !pDescricaoEdicao.trim() || editarPendencia.isPending}
+                          className="btn-primary flex-1 justify-center text-xs"
+                        >
+                          Salvar
+                        </button>
+                      </div>
+                    </div>
+                  )
+                }
+                return (
                 <div key={p.id} className="card py-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -426,9 +465,29 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                       <p className="text-xs text-gray-600 mt-0.5">{p.descricao}</p>
                       {p.protocolo && <p className="text-xs text-gray-400 mt-0.5">Protocolo: {p.protocolo}</p>}
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${p.status === 'RESPONDIDA' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                      {p.status === 'RESPONDIDA' ? 'Respondida' : 'Aguardando'}
-                    </span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${p.status === 'RESPONDIDA' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {p.status === 'RESPONDIDA' ? 'Respondida' : 'Aguardando'}
+                      </span>
+                      {podeGerenciarPendencia && (
+                        <>
+                          <button
+                            onClick={() => { setPendenciaEditando(p.id); setPOrgaoEdicao(p.orgao); setPDescricaoEdicao(p.descricao); setPProtocoloEdicao(p.protocolo || '') }}
+                            className="text-gray-300 hover:text-primary-600"
+                            title="Editar pendência"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => confirm(`Excluir a pendência de "${p.orgao}"?`) && excluirPendencia.mutate(p.id)}
+                            className="text-gray-300 hover:text-red-500"
+                            title="Excluir pendência"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   {p.status !== 'RESPONDIDA' && (
                     <button onClick={() => resolverPendencia.mutate(p.id)} className="text-xs text-primary-600 hover:underline mt-2">
@@ -436,7 +495,8 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                     </button>
                   )}
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
