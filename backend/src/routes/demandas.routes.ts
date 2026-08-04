@@ -810,10 +810,14 @@ demandasRouter.put('/passos/:id', async (req: AuthRequest, res) => {
   if (!existente) throw new AppError('Passo não encontrado', 404)
   await assertPodeGerenciarChecklist(req, existente.atividade)
 
-  const { concluido } = req.body
+  const { concluido, descricao } = req.body
+  if (descricao !== undefined && !descricao.trim()) throw new AppError('Descrição do passo é obrigatória')
   const passo = await prisma.passoAtividade.update({
     where: { id: req.params.id },
-    data: { concluido },
+    data: {
+      ...(concluido !== undefined ? { concluido } : {}),
+      ...(descricao !== undefined ? { descricao: descricao.trim() } : {}),
+    },
   })
   res.json(passo)
 })

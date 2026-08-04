@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { Demanda, Atividade, StatusAtividade, User, Equipe, Prioridade } from '@/types'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, MessageSquare, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown } from 'lucide-react'
+import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, MessageSquare, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -57,6 +57,8 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
 
   const [atividadeAberta, setAtividadeAberta] = useState<string | null>(null)
   const [novoPasso, setNovoPasso] = useState('')
+  const [passoEditando, setPassoEditando] = useState<string | null>(null)
+  const [textoEdicaoPasso, setTextoEdicaoPasso] = useState('')
   const [devolverMotivo, setDevolverMotivo] = useState('')
   const [showDevolver, setShowDevolver] = useState(false)
   const [novoDocNome, setNovoDocNome] = useState('')
@@ -151,6 +153,18 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     mutationFn: ({ id, concluido }: { id: string; concluido: boolean }) => api.put(`/api/demandas/passos/${id}`, { concluido }),
     onSuccess: invalidar,
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao atualizar passo'))
+  })
+
+  const editarPasso = useMutation({
+    mutationFn: ({ id, descricao }: { id: string; descricao: string }) => api.put(`/api/demandas/passos/${id}`, { descricao }),
+    onSuccess: () => { invalidar(); setPassoEditando(null); setTextoEdicaoPasso('') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao editar passo'))
+  })
+
+  const excluirPasso = useMutation({
+    mutationFn: (id: string) => api.delete(`/api/demandas/passos/${id}`),
+    onSuccess: invalidar,
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao excluir passo'))
   })
 
   const addDocumento = useMutation({
@@ -553,16 +567,59 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 ) : (
                   <div className="space-y-1.5">
                     {atividadeModal.passos.map(p => (
-                      <label key={p.id} className={`flex items-center gap-2 p-2 rounded-lg border text-sm ${p.concluido ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'} ${!podeGerenciarChecklist(atividadeModal) ? 'opacity-70' : ''}`}>
+                      <div key={p.id} className={`flex items-center gap-2 p-2 rounded-lg border text-sm ${p.concluido ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'} ${!podeGerenciarChecklist(atividadeModal) ? 'opacity-70' : ''}`}>
                         <input
                           type="checkbox"
                           checked={p.concluido}
                           disabled={!podeGerenciarChecklist(atividadeModal)}
                           onChange={e => togglePasso.mutate({ id: p.id, concluido: e.target.checked })}
-                          className="w-4 h-4 accent-green-600"
+                          className="w-4 h-4 accent-green-600 flex-shrink-0"
                         />
-                        <span className={p.concluido ? 'text-gray-400 line-through' : 'text-gray-700'}>{p.descricao}</span>
-                      </label>
+                        {passoEditando === p.id ? (
+                          <>
+                            <input
+                              className="input text-sm flex-1 py-1"
+                              value={textoEdicaoPasso}
+                              onChange={e => setTextoEdicaoPasso(e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && textoEdicaoPasso.trim() && editarPasso.mutate({ id: p.id, descricao: textoEdicaoPasso.trim() })}
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => textoEdicaoPasso.trim() && editarPasso.mutate({ id: p.id, descricao: textoEdicaoPasso.trim() })}
+                              disabled={!textoEdicaoPasso.trim()}
+                              className="text-green-600 hover:text-green-700 flex-shrink-0"
+                              title="Salvar"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => setPassoEditando(null)} className="text-gray-400 hover:text-gray-600 flex-shrink-0" title="Cancelar">
+                              <X className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span className={`flex-1 ${p.concluido ? 'text-gray-400 line-through' : 'text-gray-700'}`}>{p.descricao}</span>
+                            {podeGerenciarChecklist(atividadeModal) && (
+                              <>
+                                <button
+                                  onClick={() => { setPassoEditando(p.id); setTextoEdicaoPasso(p.descricao) }}
+                                  className="text-gray-300 hover:text-primary-600 flex-shrink-0"
+                                  title="Editar item"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => confirm(`Excluir o item "${p.descricao}" do checklist?`) && excluirPasso.mutate(p.id)}
+                                  className="text-gray-300 hover:text-red-500 flex-shrink-0"
+                                  title="Excluir item"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
