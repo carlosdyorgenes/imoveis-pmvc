@@ -960,11 +960,22 @@ demandasRouter.post('/:demandaId/pendencias', async (req: AuthRequest, res) => {
   res.status(201).json(pendencia)
 })
 
+// Pendências externas são gerenciáveis por qualquer usuário com acesso à demanda (mesmo
+// critério do isolamento entre áreas: MASTER, quem abriu, ou responsável de alguma atividade
+// dela) — não é uma ação exclusiva de quem abriu o processo.
 async function assertPodeGerenciarPendencia(req: AuthRequest, demandaId: string) {
   if (req.user!.role === 'MASTER') return
-  const demanda = await prisma.demanda.findUnique({ where: { id: demandaId }, select: { solicitanteId: true } })
-  if (!demanda || demanda.solicitanteId !== req.user!.id) {
-    throw new AppError('Somente quem abriu a demanda (ou o Master) pode gerenciar pendências externas', 403)
+  const demanda = await prisma.demanda.findUnique({
+    where: { id: demandaId },
+    select: { solicitanteId: true, atividades: { select: { responsavelId: true, equipeId: true } } },
+  })
+  if (!demanda) throw new AppError('Demanda não encontrada', 404)
+  if (demanda.solicitanteId === req.user!.id) return
+
+  const equipeIds = await getEquipeIdsDoUsuario(req.user!.id)
+  const temAcesso = demanda.atividades.some(a => isResponsavelOuEquipeDaAtividade(a, req.user!.id, equipeIds))
+  if (!temAcesso) {
+    throw new AppError('Você não possui permissão para acessar este conteúdo.', 403)
   }
 }
 

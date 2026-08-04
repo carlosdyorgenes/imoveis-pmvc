@@ -437,7 +437,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
           ) : (
             <div className="space-y-2">
               {(demanda.pendenciasExternas || []).map(p => {
-                const podeGerenciarPendencia = isMaster || demanda.solicitante.id === user?.id
+                const podeGerenciarPendencia = isMaster || demanda.solicitante.id === user?.id || demanda.atividades.some(isResponsavel)
                 if (pendenciaEditando === p.id) {
                   return (
                     <div key={p.id} className="card py-3 space-y-2">
