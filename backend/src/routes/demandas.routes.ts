@@ -13,6 +13,7 @@ import { previewImportacao } from '../data/previewImportacao'
 import { TRANSICOES_DEMANDA, TRANSICOES_ATIVIDADE, transicaoValida, AÇÕES_DO_RESPONSAVEL, AÇÕES_DO_SOLICITANTE } from '../domain/estados'
 import { etapasDoMesmoGrupo, proximoGrupo, grupoCompleto } from '../domain/motorFluxo'
 import { calcularTemposAtividade } from '../domain/tempos'
+import { isResponsavelOuEquipeDaAtividade, filtrarAtividadesVisiveis } from '../domain/visibilidade'
 
 export const demandasRouter = Router()
 demandasRouter.use(authenticate)
@@ -76,6 +77,11 @@ async function isResponsavelDaAtividade(userId: string, atividade: { responsavel
     return !!membro
   }
   return false
+}
+
+async function getEquipeIdsDoUsuario(userId: string): Promise<string[]> {
+  const membros = await prisma.equipeMembro.findMany({ where: { userId }, select: { equipeId: true } })
+  return membros.map(m => m.equipeId)
 }
 
 // Notifica o(s) responsável(is) de uma atividade (usuário direto ou todos os membros da equipe)
@@ -208,7 +214,7 @@ demandasRouter.get('/atividades/minhas', async (req: AuthRequest, res) => {
 
 // ===== Demandas =====
 
-demandasRouter.get('/', async (req, res) => {
+demandasRouter.get('/', async (req: AuthRequest, res) => {
   await escalonarPrazosVencidos()
   const { status, gep, tipoDemandaId, responsavelId, atrasadas, prioridade } = req.query as Record<string, string>
   const where: Record<string, unknown> = {}
@@ -224,6 +230,16 @@ demandasRouter.get('/', async (req, res) => {
     where.atividades = { some: { OR: [{ responsavelId }, { equipe: { membros: { some: { userId: responsavelId } } } }] } }
   }
 
+  // Isolamento de processos: usuário PADRAO só lista demandas que ele abriu ou nas quais
+  // tem/teve uma atividade atribuída a ele ou à sua equipe — nunca a base inteira.
+  if (req.user!.role !== 'MASTER') {
+    const equipeIds = await getEquipeIdsDoUsuario(req.user!.id)
+    where.OR = [
+      { solicitanteId: req.user!.id },
+      { atividades: { some: { OR: [{ responsavelId: req.user!.id }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds } }] : [])] } } },
+    ]
+  }
+
   const demandas = await prisma.demanda.findMany({
     where,
     include: {
@@ -236,14 +252,31 @@ demandasRouter.get('/', async (req, res) => {
   res.json(demandas)
 })
 
-demandasRouter.get('/:id', async (req, res) => {
+demandasRouter.get('/:id', async (req: AuthRequest, res) => {
   const demanda = await prisma.demanda.findUnique({
     where: { id: req.params.id },
     include: DEMANDA_INCLUDE,
   })
   if (!demanda) throw new AppError('Demanda não encontrada', 404)
 
-  const atividadesComTempos = demanda.atividades.map(a => ({
+  const uid = req.user!.id
+  const isMaster = req.user!.role === 'MASTER'
+  const isSolicitante = demanda.solicitanteId === uid
+  const vePorCompleto = isMaster || isSolicitante
+  const equipeIds = vePorCompleto ? [] : await getEquipeIdsDoUsuario(uid)
+
+  // Sem nenhuma relação com a demanda (não é quem abriu, não é MASTER, e não tem nenhuma
+  // atividade atribuída a ele/sua equipe): acesso negado, nem para "espiar" o processo.
+  if (!vePorCompleto && !demanda.atividades.some(a => isResponsavelOuEquipeDaAtividade(a, uid, equipeIds))) {
+    throw new AppError('Você não possui permissão para acessar este conteúdo.', 403)
+  }
+
+  // Quem abriu a demanda (ou o MASTER) precisa ver todas as atividades para distribuir/analisar.
+  // Um usuário de setor que só tem atividade(s) atribuída(s) enxerga apenas as suas — as demais
+  // áreas ficam ocultas, mesmo dentro da mesma demanda.
+  const atividadesVisiveis = filtrarAtividadesVisiveis(demanda.atividades, uid, equipeIds, vePorCompleto)
+
+  const atividadesComTempos = atividadesVisiveis.map(a => ({
     ...a,
     tempos: calcularTemposAtividade(a.createdAt, a.dataInicio, a.dataConclusao),
   }))
@@ -734,6 +767,22 @@ async function assertPodeGerenciarChecklist(req: AuthRequest, atividade: { respo
   }
 }
 
+// Mesmo isolamento de processos usado em GET /demandas/:id, aplicado a um documento avulso:
+// só quem abriu a demanda, é responsável (usuário/equipe) da atividade dona do documento, ou
+// MASTER pode baixar/verificar o arquivo — nunca "qualquer usuário autenticado".
+async function assertPodeVerDocumento(req: AuthRequest, documentoId: string) {
+  const doc = await prisma.documentoAtividade.findUnique({
+    where: { id: documentoId },
+    include: { atividade: { include: { demanda: { select: { solicitanteId: true } } } } },
+  })
+  if (!doc) throw new AppError('Documento não encontrado', 404)
+  if (req.user!.role !== 'MASTER' && doc.atividade.demanda.solicitanteId !== req.user!.id) {
+    const isResponsavel = await isResponsavelDaAtividade(req.user!.id, doc.atividade)
+    if (!isResponsavel) throw new AppError('Você não possui permissão para acessar este conteúdo.', 403)
+  }
+  return doc
+}
+
 demandasRouter.post('/atividades/:atividadeId/passos', async (req: AuthRequest, res) => {
   const { descricao } = req.body
   if (!descricao?.trim()) throw new AppError('Descrição do passo é obrigatória')
@@ -835,8 +884,8 @@ demandasRouter.post('/atividades/:atividadeId/documentos/upload', (req: AuthRequ
 // o nome de arquivo aleatório (UUID) é a camada real de proteção contra acesso não autorizado
 // por terceiros, equivalente ao modelo já usado no resto do sistema (link do Google Drive).
 demandasRouter.get('/documentos/:id/arquivo', async (req: AuthRequest, res) => {
-  const doc = await prisma.documentoAtividade.findUnique({ where: { id: req.params.id } })
-  if (!doc || !doc.arquivoPath) throw new AppError('Arquivo não encontrado', 404)
+  const doc = await assertPodeVerDocumento(req, req.params.id)
+  if (!doc.arquivoPath) throw new AppError('Arquivo não encontrado', 404)
 
   const filePath = path.join(UPLOADS_DIR, doc.arquivoPath)
   if (!fs.existsSync(filePath)) throw new AppError('Arquivo não encontrado no armazenamento', 404)
@@ -848,8 +897,8 @@ demandasRouter.get('/documentos/:id/arquivo', async (req: AuthRequest, res) => {
 // Detecta corrupção/alteração do arquivo depois de enviado (integridade real, não só
 // confiança cega no armazenamento).
 demandasRouter.get('/documentos/:id/verificar-integridade', async (req: AuthRequest, res) => {
-  const doc = await prisma.documentoAtividade.findUnique({ where: { id: req.params.id } })
-  if (!doc || !doc.arquivoPath) throw new AppError('Este documento não é um arquivo enviado (é um link)', 400)
+  const doc = await assertPodeVerDocumento(req, req.params.id)
+  if (!doc.arquivoPath) throw new AppError('Este documento não é um arquivo enviado (é um link)', 400)
   if (!doc.arquivoHash) throw new AppError('Este arquivo foi enviado antes do recurso de integridade existir — sem hash de referência', 400)
 
   const filePath = path.join(UPLOADS_DIR, doc.arquivoPath)
