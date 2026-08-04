@@ -1,8 +1,29 @@
 'use client'
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { BarChart3, FileText, FileSpreadsheet, Download } from 'lucide-react'
+import { BarChart3, FileText, FileSpreadsheet, Download, Users, Timer } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { useAuth } from '@/hooks/useAuth'
+
+function formatarMinutos(min: number | null) {
+  if (min === null) return '—'
+  const dias = Math.floor(min / 1440)
+  const horas = Math.floor((min % 1440) / 60)
+  if (dias > 0) return `${dias}d ${horas}h`
+  if (horas > 0) return `${horas}h ${min % 60}min`
+  return `${min}min`
+}
+
+interface Indicadores {
+  tempoMedioPorArea: { area: string; tempoMedioEsperaMin: number | null; tempoMedioExecucaoMin: number | null }[]
+  cargaPorUsuario: { nome: string; ativas: number }[]
+  totalTransferidas: number
+  totalDevolvidas: number
+  totalConcluidas: number
+  totalArquivadas: number
+  totalSemMovimentacao: number
+}
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -30,6 +51,13 @@ export default function RelatoriosPage() {
   const [zona, setZona] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
+  const { isMaster } = useAuth()
+
+  const { data: indicadores } = useQuery<Indicadores>({
+    queryKey: ['demandas-indicadores'],
+    queryFn: () => api.get('/api/relatorios/demandas/indicadores').then(r => r.data),
+    enabled: isMaster,
+  })
 
   const handleDownload = async (endpoint: string, filename: string, reportKey: string) => {
     setLoadingReport(reportKey + filename)
@@ -112,6 +140,66 @@ export default function RelatoriosPage() {
         <h1 className="text-2xl font-bold text-gray-900">Relatórios</h1>
         <p className="text-gray-500 mt-0.5">Exporte dados em PDF ou Excel</p>
       </div>
+
+      {isMaster && indicadores && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div className="card">
+            <h3 className="font-semibold text-gray-800 flex items-center gap-2 mb-3">
+              <Timer className="w-4 h-4 text-primary-600" /> Tempo médio por área
+            </h3>
+            {indicadores.tempoMedioPorArea.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-3">Sem dados suficientes ainda</p>
+            ) : (
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-gray-500 border-b border-gray-100">
+                    <th className="py-1.5 font-medium">Área</th>
+                    <th className="py-1.5 font-medium">Espera</th>
+                    <th className="py-1.5 font-medium">Execução</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {indicadores.tempoMedioPorArea.map(a => (
+                    <tr key={a.area}>
+                      <td className="py-1.5 text-gray-700">{a.area}</td>
+                      <td className="py-1.5 text-gray-500">{formatarMinutos(a.tempoMedioEsperaMin)}</td>
+                      <td className="py-1.5 text-gray-500">{formatarMinutos(a.tempoMedioExecucaoMin)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="card">
+            <h3 className="font-semibold text-gray-800 flex items-center gap-2 mb-3">
+              <Users className="w-4 h-4 text-primary-600" /> Carga de tarefas ativas por usuário
+            </h3>
+            {indicadores.cargaPorUsuario.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-3">Nenhuma tarefa ativa no momento</p>
+            ) : (
+              <div className="space-y-1.5">
+                {indicadores.cargaPorUsuario.map(u => (
+                  <div key={u.nome} className="flex items-center justify-between text-xs">
+                    <span className="text-gray-700">{u.nome}</span>
+                    <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">{u.ativas} ativa(s)</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="card md:col-span-2">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+              <div><p className="text-xl font-bold text-gray-800">{indicadores.totalConcluidas}</p><p className="text-[11px] text-gray-500">Concluídas</p></div>
+              <div><p className="text-xl font-bold text-gray-800">{indicadores.totalArquivadas}</p><p className="text-[11px] text-gray-500">Canceladas</p></div>
+              <div><p className="text-xl font-bold text-orange-600">{indicadores.totalDevolvidas}</p><p className="text-[11px] text-gray-500">Já devolvidas</p></div>
+              <div><p className="text-xl font-bold text-blue-600">{indicadores.totalTransferidas}</p><p className="text-[11px] text-gray-500">Transferências</p></div>
+              <div><p className="text-xl font-bold text-red-600">{indicadores.totalSemMovimentacao}</p><p className="text-[11px] text-gray-500">Sem movimentação 15d+</p></div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {reports.map(report => (

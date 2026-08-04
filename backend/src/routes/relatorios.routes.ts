@@ -2,7 +2,8 @@ import { Router, Response } from 'express'
 import PDFDocument from 'pdfkit'
 import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma'
-import { authenticate, AuthRequest } from '../middleware/auth'
+import { authenticate, requireMaster, AuthRequest } from '../middleware/auth'
+import { calcularTemposAtividade } from '../domain/tempos'
 
 export const relatoriosRouter = Router()
 relatoriosRouter.use(authenticate)
@@ -409,4 +410,62 @@ relatoriosRouter.get('/demandas/atrasadas/pdf', async (req: AuthRequest, res: Re
   })
 
   doc.end()
+})
+
+// ---- Indicadores gerenciais: tempo médio por área e carga por usuário (restrito ao MASTER) ----
+// Mostra fluxo, carga e gargalos — deliberadamente NÃO monta ranking depreciativo de usuários
+// (sem ordenação "pior desempenho", sem métrica de velocidade individual comparativa).
+relatoriosRouter.get('/demandas/indicadores', requireMaster, async (_req: AuthRequest, res: Response) => {
+  const atividades = await prisma.atividade.findMany({
+    where: { status: { not: 'CANCELADA' } },
+    include: {
+      equipe: { select: { id: true, nome: true } },
+      responsavel: { select: { id: true, name: true } },
+      transferencias: true,
+    },
+  })
+
+  // Tempo médio de espera/execução por área (equipe) — só entra no cálculo quem já tem o dado.
+  const porEquipe = new Map<string, { nome: string; somaEspera: number; somaExecucao: number; nEspera: number; nExecucao: number }>()
+  for (const a of atividades) {
+    const chave = a.equipe?.id || 'sem-equipe'
+    const nome = a.equipe?.nome || 'Sem equipe'
+    if (!porEquipe.has(chave)) porEquipe.set(chave, { nome, somaEspera: 0, somaExecucao: 0, nEspera: 0, nExecucao: 0 })
+    const acc = porEquipe.get(chave)!
+    const tempos = calcularTemposAtividade(a.createdAt, a.dataInicio, a.dataConclusao)
+    if (a.dataInicio) { acc.somaEspera += tempos.tempoEspera.minutos; acc.nEspera++ }
+    if (a.dataInicio && tempos.tempoExecucao) { acc.somaExecucao += tempos.tempoExecucao.minutos; acc.nExecucao++ }
+  }
+  const tempoMedioPorArea = [...porEquipe.values()].map(a => ({
+    area: a.nome,
+    tempoMedioEsperaMin: a.nEspera > 0 ? Math.round(a.somaEspera / a.nEspera) : null,
+    tempoMedioExecucaoMin: a.nExecucao > 0 ? Math.round(a.somaExecucao / a.nExecucao) : null,
+  }))
+
+  // Carga atual por usuário — apenas contagem de tarefas ativas (não é métrica de desempenho).
+  const cargaPorUsuario = new Map<string, { nome: string; ativas: number }>()
+  for (const a of atividades) {
+    if (!a.responsavel || !['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'].includes(a.status)) continue
+    const chave = a.responsavel.id
+    if (!cargaPorUsuario.has(chave)) cargaPorUsuario.set(chave, { nome: a.responsavel.name, ativas: 0 })
+    cargaPorUsuario.get(chave)!.ativas++
+  }
+
+  const totalTransferidas = atividades.reduce((acc, a) => acc + a.transferencias.length, 0)
+  const totalDevolvidas = await prisma.atividade.count({ where: { motivoDevolucao: { not: null } } })
+  const totalConcluidas = await prisma.demanda.count({ where: { status: 'CONCLUIDA' } })
+  const totalArquivadas = await prisma.demanda.count({ where: { status: 'CANCELADA' } })
+  const totalSemMovimentacao = await prisma.demanda.count({
+    where: { status: { notIn: ['CONCLUIDA', 'CANCELADA'] }, updatedAt: { lt: new Date(Date.now() - 15 * 86400000) } },
+  })
+
+  res.json({
+    tempoMedioPorArea,
+    cargaPorUsuario: [...cargaPorUsuario.values()],
+    totalTransferidas,
+    totalDevolvidas,
+    totalConcluidas,
+    totalArquivadas,
+    totalSemMovimentacao,
+  })
 })

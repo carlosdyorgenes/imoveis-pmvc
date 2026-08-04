@@ -158,14 +158,22 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
 // regra de negócio é ALTA > MEDIA > BAIXA).
 const PESO_PRIORIDADE: Record<string, number> = { ALTA: 0, MEDIA: 1, BAIXA: 2 }
 
+// Fila do usuário (Seção 13): por padrão só o que está ativo (pendente/em andamento);
+// ?todas=true traz também Devolvida/Concluída/Aprovada/Reaberta para as abas de
+// histórico da tela "Minha Fila" no frontend.
 demandasRouter.get('/atividades/minhas', async (req: AuthRequest, res) => {
   const uid = req.user!.id
+  const todas = req.query.todas === 'true'
   const minhasEquipes = await prisma.equipeMembro.findMany({ where: { userId: uid }, select: { equipeId: true } })
   const equipeIds = minhasEquipes.map(m => m.equipeId)
 
+  const statusFiltro = todas
+    ? { not: 'CANCELADA' as const }
+    : { in: ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'] as Array<'ATRIBUIDA' | 'EM_ANDAMENTO' | 'AGUARDANDO_INFORMACAO' | 'REABERTA'> }
+
   const atividades = await prisma.atividade.findMany({
     where: {
-      status: { in: ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'] },
+      status: statusFiltro,
       OR: [{ responsavelId: uid }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds } }] : [])],
     },
     include: {
@@ -175,11 +183,19 @@ demandasRouter.get('/atividades/minhas', async (req: AuthRequest, res) => {
     },
   })
 
+  // A regra de prioridade + antiguidade (Seção 12) só rege a fila do que está pendente de ação;
+  // fora dela, ordena por mais recente primeiro (uso puramente de consulta/histórico).
   atividades.sort((a, b) => {
-    const pa = PESO_PRIORIDADE[a.demanda.prioridade] ?? 1
-    const pb = PESO_PRIORIDADE[b.demanda.prioridade] ?? 1
-    if (pa !== pb) return pa - pb
-    return a.createdAt.getTime() - b.createdAt.getTime()
+    const ativaA = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'].includes(a.status)
+    const ativaB = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'].includes(b.status)
+    if (ativaA && ativaB) {
+      const pa = PESO_PRIORIDADE[a.demanda.prioridade] ?? 1
+      const pb = PESO_PRIORIDADE[b.demanda.prioridade] ?? 1
+      if (pa !== pb) return pa - pb
+      return a.createdAt.getTime() - b.createdAt.getTime()
+    }
+    if (ativaA !== ativaB) return ativaA ? -1 : 1
+    return b.createdAt.getTime() - a.createdAt.getTime()
   })
 
   const comTempos = atividades.map(a => ({
