@@ -25,7 +25,9 @@ authRouter.post('/login', async (req, res) => {
     throw new AppError(`Muitas tentativas de login. Tente novamente em ${minutos} minuto(s).`, 429)
   }
 
-  const user = await prisma.user.findUnique({ where: { email } })
+  // Busca case-insensitive: o e-mail cadastrado pode ter sido salvo com maiúsculas e o
+  // usuário não deveria precisar digitar exatamente igual para entrar.
+  const user = await prisma.user.findFirst({ where: { email: { equals: chave, mode: 'insensitive' } } })
   const valid = user && user.active && (await bcrypt.compare(password, user.password))
 
   if (!valid) {
@@ -56,7 +58,7 @@ authRouter.post('/forgot-password', async (req, res) => {
   const { email } = req.body
   if (!email) throw new AppError('Email é obrigatório')
 
-  const user = await prisma.user.findUnique({ where: { email } })
+  const user = await prisma.user.findFirst({ where: { email: { equals: String(email).trim(), mode: 'insensitive' } } })
   if (!user || !user.active) {
     throw new AppError('O e-mail informado não está cadastrado no sistema.', 404)
   }
