@@ -790,6 +790,21 @@ async function assertPodeVerDocumento(req: AuthRequest, documentoId: string) {
   return doc
 }
 
+// Campo livre de anotações da atividade (o que o responsável achar pertinente registrar,
+// além do checklist) — mesma autorização de quem já pode gerenciar o checklist.
+demandasRouter.put('/atividades/:id/observacoes', async (req: AuthRequest, res) => {
+  const { observacoes } = req.body
+  const atividade = await prisma.atividade.findUnique({ where: { id: req.params.id } })
+  if (!atividade) throw new AppError('Atividade não encontrada', 404)
+  await assertPodeGerenciarChecklist(req, atividade)
+
+  const atualizada = await prisma.atividade.update({
+    where: { id: atividade.id },
+    data: { observacoes },
+  })
+  res.json(atualizada)
+})
+
 demandasRouter.post('/atividades/:atividadeId/passos', async (req: AuthRequest, res) => {
   const { descricao } = req.body
   if (!descricao?.trim()) throw new AppError('Descrição do passo é obrigatória')

@@ -1,11 +1,11 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Demanda, Atividade, StatusAtividade, User, Equipe, Prioridade } from '@/types'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, MessageSquare, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check } from 'lucide-react'
+import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, MessageSquare, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check, StickyNote } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -70,6 +70,8 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [showTransferir, setShowTransferir] = useState(false)
   const [novoResponsavelTransfer, setNovoResponsavelTransfer] = useState('')
   const [justificativaTransfer, setJustificativaTransfer] = useState('')
+
+  const [observacoesTexto, setObservacoesTexto] = useState('')
 
   const [showReabrir, setShowReabrir] = useState(false)
   const [motivoReabrir, setMotivoReabrir] = useState('')
@@ -255,6 +257,18 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     mutationFn: (comentarioId: string) => api.delete(`/api/demandas/comentarios/${comentarioId}`),
     onSuccess: invalidar,
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao remover comentário'))
+  })
+
+  useEffect(() => {
+    const a = demanda?.atividades.find(a => a.id === atividadeAberta)
+    setObservacoesTexto(a?.observacoes || '')
+  }, [atividadeAberta, demanda])
+
+  const salvarObservacoes = useMutation({
+    mutationFn: ({ atividadeId, observacoes }: { atividadeId: string; observacoes: string }) =>
+      api.put(`/api/demandas/atividades/${atividadeId}/observacoes`, { observacoes }),
+    onSuccess: () => { invalidar(); toast.success('Observações salvas') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao salvar observações'))
   })
 
   if (isLoading) return <div className="p-8 text-center text-gray-400">Carregando...</div>
@@ -682,6 +696,28 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1.5">
+                  <StickyNote className="w-3.5 h-3.5" /> Observações
+                </p>
+                <textarea
+                  className="input text-sm min-h-20 resize-none"
+                  placeholder="Registre aqui qualquer informação pertinente sobre esta atividade..."
+                  value={observacoesTexto}
+                  onChange={e => setObservacoesTexto(e.target.value)}
+                  disabled={!podeGerenciarChecklist(atividadeModal)}
+                />
+                {podeGerenciarChecklist(atividadeModal) && (
+                  <button
+                    onClick={() => salvarObservacoes.mutate({ atividadeId: atividadeModal.id, observacoes: observacoesTexto })}
+                    disabled={salvarObservacoes.isPending || observacoesTexto === (atividadeModal.observacoes || '')}
+                    className="btn-secondary text-xs mt-2"
+                  >
+                    {salvarObservacoes.isPending ? 'Salvando...' : 'Salvar observações'}
+                  </button>
                 )}
               </div>
 
