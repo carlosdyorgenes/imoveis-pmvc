@@ -303,7 +303,6 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
           </h1>
           <p className="text-gray-500 text-sm">
             {demanda.assunto}{demanda.interessado ? ` — ${demanda.interessado}` : ''}
-            {demanda.tipoDemanda && <span className="ml-2 text-xs bg-primary-50 text-primary-700 px-2 py-0.5 rounded-full">{demanda.tipoDemanda.nome}</span>}
             {demanda.prazo && <span className="ml-2 text-xs text-gray-400">Prazo: {format(new Date(demanda.prazo), 'dd/MM/yy', { locale: ptBR })}</span>}
           </p>
         </div>

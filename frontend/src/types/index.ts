@@ -185,25 +185,6 @@ export interface Equipe {
   membros: EquipeMembro[]
 }
 
-export interface ModeloEtapa {
-  id: string
-  tipoDemandaId: string
-  titulo: string
-  instrucoes?: string
-  ordem: number
-  equipeId?: string
-  prazoDias?: number
-}
-
-export interface TipoDemanda {
-  id: string
-  nome: string
-  descricao?: string
-  prazoPadraoDias?: number
-  ativo: boolean
-  etapasModelo: ModeloEtapa[]
-}
-
 export interface PendenciaExterna {
   id: string
   demandaId: string
@@ -259,7 +240,6 @@ export interface Demanda {
   prazo?: string
   createdAt: string
   solicitante: { id: string; name: string }
-  tipoDemanda?: { id: string; nome: string } | null
   atividades: Atividade[]
   historico?: HistoricoDemanda[]
   pendenciasExternas?: PendenciaExterna[]

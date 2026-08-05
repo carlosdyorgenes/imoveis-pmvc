@@ -12,7 +12,6 @@ import { ocorrenciasRouter } from './routes/ocorrencias.routes'
 import { tarefasRouter } from './routes/tarefas.routes'
 import { demandasRouter } from './routes/demandas.routes'
 import { equipesRouter } from './routes/equipes.routes'
-import { tiposDemandaRouter } from './routes/tiposDemanda.routes'
 import { notificacoesRouter } from './routes/notificacoes.routes'
 import { usuariosRouter } from './routes/usuarios.routes'
 import { relatoriosRouter } from './routes/relatorios.routes'
@@ -40,7 +39,6 @@ app.use('/api/ocorrencias', ocorrenciasRouter)
 app.use('/api/tarefas', tarefasRouter)
 app.use('/api/demandas', demandasRouter)
 app.use('/api/equipes', equipesRouter)
-app.use('/api/tipos-demanda', tiposDemandaRouter)
 app.use('/api/notificacoes', notificacoesRouter)
 app.use('/api/usuarios', usuariosRouter)
 app.use('/api/relatorios', relatoriosRouter)

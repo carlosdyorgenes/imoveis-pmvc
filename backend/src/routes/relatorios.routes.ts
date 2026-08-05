@@ -301,7 +301,6 @@ relatoriosRouter.get('/resumo/pdf', async (req: AuthRequest, res: Response) => {
 // ---- Demandas: dados comuns ----
 const DEMANDAS_REPORT_INCLUDE = {
   solicitante: { select: { name: true } },
-  tipoDemanda: { select: { nome: true } },
   atividades: {
     select: {
       titulo: true, status: true, prazo: true,
@@ -314,7 +313,6 @@ const DEMANDAS_REPORT_INCLUDE = {
 async function buscarDemandasRelatorio(query: Record<string, string>) {
   const where: Record<string, unknown> = {}
   if (query.status) where.status = query.status
-  if (query.tipoDemandaId) where.tipoDemandaId = query.tipoDemandaId
   return prisma.demanda.findMany({ where, include: DEMANDAS_REPORT_INCLUDE, orderBy: { createdAt: 'desc' } })
 }
 
@@ -338,7 +336,7 @@ relatoriosRouter.get('/demandas/pdf', async (req: AuthRequest, res: Response) =>
     doc.fontSize(11).fillColor(atraso ? '#dc2626' : '#1e40af')
       .text(`GEP ${d.gepNumero}/${d.gepAno} — ${d.assunto}${atraso ? ' [ATRASADA]' : ''}`)
     doc.fillColor('#000000').fontSize(9)
-      .text(`  Status: ${d.status} | Tipo: ${d.tipoDemanda?.nome || '—'} | Solicitante: ${d.solicitante.name}${d.prazo ? ` | Prazo: ${formatDate(d.prazo)}` : ''}`)
+      .text(`  Status: ${d.status} | Solicitante: ${d.solicitante.name}${d.prazo ? ` | Prazo: ${formatDate(d.prazo)}` : ''}`)
     d.atividades.forEach(a => {
       doc.text(`    • ${a.titulo} [${a.status}] — ${a.equipe ? `Equipe: ${a.equipe.nome}` : `Resp: ${a.responsavel?.name || '—'}`}`)
     })
@@ -357,7 +355,6 @@ relatoriosRouter.get('/demandas/excel', async (req: AuthRequest, res: Response) 
   ws.columns = [
     { header: 'GEP', key: 'gep', width: 16 },
     { header: 'Assunto', key: 'assunto', width: 35 },
-    { header: 'Tipo', key: 'tipo', width: 20 },
     { header: 'Status', key: 'status', width: 18 },
     { header: 'Solicitante', key: 'solicitante', width: 20 },
     { header: 'Prazo', key: 'prazo', width: 18 },
@@ -369,7 +366,6 @@ relatoriosRouter.get('/demandas/excel', async (req: AuthRequest, res: Response) 
     ws.addRow({
       gep: `${d.gepNumero}/${d.gepAno}`,
       assunto: d.assunto,
-      tipo: d.tipoDemanda?.nome || '',
       status: d.status,
       solicitante: d.solicitante.name,
       prazo: d.prazo ? formatDate(d.prazo) : '',

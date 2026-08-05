@@ -11,7 +11,6 @@ import { notificar } from '../utils/notificar'
 import { extrairParagrafosDocx, extrairItensCandidatos } from '../utils/docxParser'
 import { previewImportacao } from '../data/previewImportacao'
 import { TRANSICOES_DEMANDA, TRANSICOES_ATIVIDADE, transicaoValida, AÇÕES_DO_RESPONSAVEL, AÇÕES_DO_SOLICITANTE } from '../domain/estados'
-import { etapasDoMesmoGrupo, proximoGrupo, grupoCompleto } from '../domain/motorFluxo'
 import { calcularTemposAtividade } from '../domain/tempos'
 import { isResponsavelOuEquipeDaAtividade, filtrarAtividadesVisiveis } from '../domain/visibilidade'
 
@@ -44,7 +43,6 @@ const uploadDocumento = multer({
 
 const DEMANDA_INCLUDE = {
   solicitante: { select: { id: true, name: true } },
-  tipoDemanda: { select: { id: true, nome: true } },
   atividades: {
     include: {
       responsavel: { select: { id: true, name: true } },
@@ -216,11 +214,10 @@ demandasRouter.get('/atividades/minhas', async (req: AuthRequest, res) => {
 
 demandasRouter.get('/', async (req: AuthRequest, res) => {
   await escalonarPrazosVencidos()
-  const { status, gep, tipoDemandaId, responsavelId, atrasadas, prioridade } = req.query as Record<string, string>
+  const { status, gep, responsavelId, atrasadas, prioridade } = req.query as Record<string, string>
   const where: Record<string, unknown> = {}
   if (status) where.status = status
   if (gep) where.gepNumero = { contains: gep, mode: 'insensitive' }
-  if (tipoDemandaId) where.tipoDemandaId = tipoDemandaId
   if (prioridade) where.prioridade = prioridade
   if (atrasadas === 'true') {
     where.prazo = { lt: new Date() }
@@ -244,7 +241,6 @@ demandasRouter.get('/', async (req: AuthRequest, res) => {
     where,
     include: {
       solicitante: { select: { id: true, name: true } },
-      tipoDemanda: { select: { id: true, nome: true } },
       atividades: { select: { id: true, status: true } },
     },
     orderBy: { createdAt: 'desc' },
@@ -297,7 +293,7 @@ const GEP_NUMERO_REGEX = /^\d+$/
 const GEP_ANO_REGEX = /^\d{4}$/
 
 demandasRouter.post('/', async (req: AuthRequest, res) => {
-  const { gepNumero: gepNumeroRaw, gepAno: gepAnoRaw, assunto, descricao, interessado, prazo, tipoDemandaId, prioridade, confirmarDuplicado } = req.body
+  const { gepNumero: gepNumeroRaw, gepAno: gepAnoRaw, assunto, descricao, interessado, prazo, prioridade, confirmarDuplicado } = req.body
   const gepNumero = (gepNumeroRaw || '').trim().replace(/\s+/g, '')
   const gepAno = (gepAnoRaw || '').trim().replace(/\s+/g, '')
   if (!gepNumero || !gepAno) throw new AppError('Número e ano do GEP são obrigatórios')
@@ -316,16 +312,7 @@ demandasRouter.post('/', async (req: AuthRequest, res) => {
     })
   }
 
-  let prazoFinal = prazo ? new Date(prazo) : null
-  let tipo = null as { id: string; nome: string; prazoPadraoDias: number | null; etapasModelo: { id: string; titulo: string; instrucoes: string | null; ordem: number; equipeId: string | null; prazoDias: number | null }[] } | null
-
-  if (tipoDemandaId) {
-    tipo = await prisma.tipoDemanda.findUnique({ where: { id: tipoDemandaId }, include: { etapasModelo: { orderBy: { ordem: 'asc' } } } })
-    if (!tipo) throw new AppError('Tipo de demanda inválido')
-    if (!prazoFinal && tipo.prazoPadraoDias) {
-      prazoFinal = new Date(Date.now() + tipo.prazoPadraoDias * 86400000)
-    }
-  }
+  const prazoFinal = prazo ? new Date(prazo) : null
 
   const demanda = await prisma.demanda.create({
     data: {
@@ -337,44 +324,11 @@ demandasRouter.post('/', async (req: AuthRequest, res) => {
       prazo: prazoFinal,
       prioridade: prioridade || 'MEDIA',
       solicitanteId: req.user!.id,
-      tipoDemandaId: tipo?.id,
     },
   })
 
-  await registrarHistorico(demanda.id, req.user!.id, 'CRIACAO', `Demanda criada (GEP ${demanda.gepNumero}/${demanda.gepAno})${tipo ? ` — tipo: ${tipo.nome}` : ''}`)
+  await registrarHistorico(demanda.id, req.user!.id, 'CRIACAO', `Demanda criada (GEP ${demanda.gepNumero}/${demanda.gepAno})`)
   await createLog({ userId: req.user!.id, action: 'CREATE', entity: 'DEMANDA', entityId: demanda.id, details: `GEP ${demanda.gepNumero}/${demanda.gepAno}` })
-
-  // Motor de fluxo com dependência real entre etapas (sequencial e paralela): só o PRIMEIRO
-  // grupo do modelo é criado agora — etapas com o mesmo `ordem` nascem juntas (paralelismo).
-  // Os grupos seguintes só são gerados quando TODAS as etapas do grupo atual são aprovadas
-  // (ver ativarProximaEtapaDoFluxo, chamada na transição para APROVADA).
-  if (tipo && tipo.etapasModelo.length > 0) {
-    const menorOrdem = Math.min(...tipo.etapasModelo.map(e => e.ordem))
-    const primeiroGrupo = tipo.etapasModelo.filter(e => e.ordem === menorOrdem)
-
-    for (const etapaModelo of primeiroGrupo) {
-      const atividade = await prisma.atividade.create({
-        data: {
-          demandaId: demanda.id,
-          titulo: etapaModelo.titulo,
-          instrucoes: etapaModelo.instrucoes,
-          equipeId: etapaModelo.equipeId,
-          // Etapa do modelo sem equipe definida: cai para o solicitante, para a atividade
-          // nunca nascer sem ninguém que possa agir nela.
-          responsavelId: etapaModelo.equipeId ? null : req.user!.id,
-          modeloEtapaId: etapaModelo.id,
-          solicitanteId: req.user!.id,
-          prazo: etapaModelo.prazoDias ? new Date(Date.now() + etapaModelo.prazoDias * 86400000) : null,
-        },
-      })
-      const rotulo = primeiroGrupo.length > 1 ? `1ª etapa (paralela) do modelo "${tipo.nome}"` : `1ª etapa do modelo "${tipo.nome}"`
-      await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" (${rotulo}) criada automaticamente`, atividade.id)
-      if (etapaModelo.equipeId) {
-        await notificarResponsaveis(atividade, 'ATIVIDADE_ATRIBUIDA', `Nova atividade "${atividade.titulo}" (GEP ${demanda.gepNumero}/${demanda.gepAno})`)
-      }
-    }
-    await prisma.demanda.update({ where: { id: demanda.id }, data: { status: 'EM_ANDAMENTO' } })
-  }
 
   res.status(201).json(demanda)
 })
@@ -587,7 +541,6 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
   }
   if (status === 'APROVADA') {
     await notificarResponsaveis(atividade, 'ATIVIDADE_APROVADA', `Sua atividade "${atividade.titulo}" foi aprovada (GEP ${gep})`)
-    await ativarProximaEtapaDoFluxo(atividade.demandaId, atividade.id, req.user!.id)
   }
 
   if (['CONCLUIDA', 'APROVADA', 'REABERTA', 'CANCELADA'].includes(status)) {
@@ -684,72 +637,6 @@ async function atualizarStatusConformeAtividades(demandaId: string) {
         ? 'Parte das tarefas foi aprovada — demanda parcialmente concluída'
         : 'Demanda voltou para em andamento'
     await registrarHistorico(demandaId, demanda.solicitanteId, 'STATUS', descricao)
-  }
-}
-
-// Motor de fluxo: quando uma atividade gerada por um ModeloEtapa é aprovada, cria
-// automaticamente a atividade da próxima etapa do mesmo TipoDemanda (dependência sequencial
-// real — a etapa 2 só existe depois que a etapa 1 foi de fato aprovada, não antes).
-// Se não houver próxima etapa, conclui a demanda automaticamente.
-async function ativarProximaEtapaDoFluxo(demandaId: string, atividadeAprovadaId: string, userId: string) {
-  const atividadeAprovada = await prisma.atividade.findUnique({ where: { id: atividadeAprovadaId } })
-  if (!atividadeAprovada?.modeloEtapaId) return // atividade manual, fora do motor de fluxo
-
-  const etapaAtual = await prisma.modeloEtapa.findUnique({ where: { id: atividadeAprovada.modeloEtapaId } })
-  if (!etapaAtual) return
-
-  const demanda = await prisma.demanda.findUnique({ where: { id: demandaId } })
-  if (!demanda) return
-
-  const todasEtapasDoTipo = await prisma.modeloEtapa.findMany({ where: { tipoDemandaId: etapaAtual.tipoDemandaId } })
-  const grupoAtual = etapasDoMesmoGrupo(todasEtapasDoTipo, etapaAtual.id)
-
-  // Só avança quando TODAS as etapas do grupo atual (paralelas entre si) foram aprovadas —
-  // se houver uma etapa-irmã ainda pendente, esta aprovação isolada não libera o próximo grupo.
-  const atividadesDoGrupo = await prisma.atividade.findMany({
-    where: { demandaId, modeloEtapaId: { in: grupoAtual.map(e => e.id) } },
-  })
-  const aprovadasIds = new Set(atividadesDoGrupo.filter(a => a.status === 'APROVADA').map(a => a.modeloEtapaId!))
-  if (!grupoCompleto(grupoAtual, aprovadasIds)) return // ainda falta etapa-irmã em paralelo
-
-  const grupoSeguinte = proximoGrupo(todasEtapasDoTipo, etapaAtual.ordem)
-
-  if (grupoSeguinte.length === 0) {
-    // Último grupo do modelo totalmente aprovado: conclui a demanda automaticamente
-    if (!['CONCLUIDA', 'CANCELADA'].includes(demanda.status)) {
-      await prisma.demanda.update({ where: { id: demandaId }, data: { status: 'CONCLUIDA' } })
-      await registrarHistorico(demandaId, userId, 'STATUS', 'Última etapa do fluxo aprovada — demanda concluída automaticamente')
-    }
-    return
-  }
-
-  for (const proxima of grupoSeguinte) {
-    const jaExiste = await prisma.atividade.findFirst({ where: { demandaId, modeloEtapaId: proxima.id } })
-    if (jaExiste) continue // idempotência: nunca cria a mesma etapa duas vezes
-
-    const etapaCompleta = await prisma.modeloEtapa.findUnique({ where: { id: proxima.id } })
-    if (!etapaCompleta) continue
-
-    const novaAtividade = await prisma.atividade.create({
-      data: {
-        demandaId,
-        titulo: etapaCompleta.titulo,
-        instrucoes: etapaCompleta.instrucoes,
-        equipeId: etapaCompleta.equipeId,
-        // Etapa do modelo sem equipe definida: cai para o solicitante, para a atividade
-        // nunca nascer sem ninguém que possa agir nela.
-        responsavelId: etapaCompleta.equipeId ? null : userId,
-        modeloEtapaId: etapaCompleta.id,
-        solicitanteId: userId,
-        prazo: etapaCompleta.prazoDias ? new Date(Date.now() + etapaCompleta.prazoDias * 86400000) : null,
-      },
-    })
-
-    const rotulo = grupoSeguinte.length > 1 ? 'próxima etapa (paralela) do fluxo' : 'próxima etapa do fluxo'
-    await registrarHistorico(demandaId, userId, 'ATIVIDADE_CRIADA', `Atividade "${novaAtividade.titulo}" (${rotulo}) criada automaticamente`, novaAtividade.id)
-    if (etapaCompleta.equipeId) {
-      await notificarResponsaveis(novaAtividade, 'ATIVIDADE_ATRIBUIDA', `Nova atividade "${novaAtividade.titulo}" (GEP ${demanda.gepNumero}/${demanda.gepAno})`)
-    }
   }
 }
 

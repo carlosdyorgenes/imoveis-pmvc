@@ -156,12 +156,10 @@ model Demanda {
   prazo         DateTime?
   escalonado    Boolean           @default(false)
   solicitanteId String
-  tipoDemandaId String?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
   solicitante        User               @relation("DemandaSolicitante", fields: [solicitanteId], references: [id])
-  tipoDemanda        TipoDemanda?       @relation(fields: [tipoDemandaId], references: [id])
   atividades         Atividade[]
   historico          HistoricoDemanda[]
   pendenciasExternas PendenciaExterna[]
@@ -180,9 +178,6 @@ model Atividade {
   responsavelId          String?
   equipeId               String?
   solicitanteId          String
-  // Preenchida quando a atividade foi gerada automaticamente por um TipoDemanda/ModeloEtapa
-  // (motor de fluxo). Usada para saber qual é a "próxima etapa" a ativar quando esta é aprovada.
-  modeloEtapaId          String?
   status                 StatusAtividade @default(ATRIBUIDA)
   prazo                  DateTime?
   observacoes            String?
@@ -223,36 +218,6 @@ model HistoricoTransferencia {
   paraUsuario User      @relation("TransferenciaPara", fields: [paraUsuarioId], references: [id])
 
   @@map("historico_transferencias")
-}
-
-model TipoDemanda {
-  id              String   @id @default(uuid())
-  nome            String   @unique
-  descricao       String?
-  prazoPadraoDias Int?
-  ativo           Boolean  @default(true)
-  createdAt       DateTime @default(now())
-
-  etapasModelo ModeloEtapa[]
-  demandas     Demanda[]
-
-  @@map("tipos_demanda")
-}
-
-// Etapas padrão de um tipo de demanda (motor de fluxo configurável e simplificado):
-// ao criar uma demanda com um tipo selecionado, as atividades abaixo são geradas automaticamente.
-model ModeloEtapa {
-  id            String  @id @default(uuid())
-  tipoDemandaId String
-  titulo        String
-  instrucoes    String?
-  ordem         Int     @default(0)
-  equipeId      String?
-  prazoDias     Int?
-
-  tipoDemanda TipoDemanda @relation(fields: [tipoDemandaId], references: [id], onDelete: Cascade)
-
-  @@map("modelo_etapas")
 }
 
 model DocumentoAtividade {

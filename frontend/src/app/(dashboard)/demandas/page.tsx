@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { Demanda, StatusDemanda, TipoDemanda, Prioridade } from '@/types'
+import { Demanda, StatusDemanda, Prioridade } from '@/types'
 import Link from 'next/link'
 import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox, List, Columns3, FileUp, Trash2, ArrowUp, Minus, ArrowDown } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -69,39 +69,31 @@ export default function DemandasPage() {
   const [assunto, setAssunto] = useState('')
   const [interessado, setInteressado] = useState('')
   const [descricao, setDescricao] = useState('')
-  const [tipoDemandaId, setTipoDemandaId] = useState('')
   const [prioridade, setPrioridade] = useState<Prioridade>('MEDIA')
   const [duplicado, setDuplicado] = useState<{ mensagem: string; demandaExistenteId: string } | null>(null)
 
   const [filtroStatus, setFiltroStatus] = useState('')
-  const [filtroTipo, setFiltroTipo] = useState('')
   const [filtroPrioridade, setFiltroPrioridade] = useState('')
   const [somenteAtrasadas, setSomenteAtrasadas] = useState(false)
   const [visualizacao, setVisualizacao] = useState<'lista' | 'kanban'>('lista')
   const router = useRouter()
 
   const { data: demandas = [], isLoading } = useQuery<Demanda[]>({
-    queryKey: ['demandas', gepBusca, filtroStatus, filtroTipo, filtroPrioridade, somenteAtrasadas],
+    queryKey: ['demandas', gepBusca, filtroStatus, filtroPrioridade, somenteAtrasadas],
     queryFn: () => api.get('/api/demandas', {
       params: {
         ...(gepBusca ? { gep: gepBusca } : {}),
         ...(filtroStatus ? { status: filtroStatus } : {}),
-        ...(filtroTipo ? { tipoDemandaId: filtroTipo } : {}),
         ...(filtroPrioridade ? { prioridade: filtroPrioridade } : {}),
         ...(somenteAtrasadas ? { atrasadas: 'true' } : {}),
       },
     }).then(r => r.data),
   })
 
-  const { data: tiposDemanda = [] } = useQuery<TipoDemanda[]>({
-    queryKey: ['tipos-demanda'],
-    queryFn: () => api.get('/api/tipos-demanda').then(r => r.data),
-  })
-
   const baixarRelatorio = async (formato: 'pdf' | 'excel') => {
     try {
       const res = await api.get(`/api/relatorios/demandas/${formato}`, {
-        params: { ...(filtroStatus ? { status: filtroStatus } : {}), ...(filtroTipo ? { tipoDemandaId: filtroTipo } : {}) },
+        params: { ...(filtroStatus ? { status: filtroStatus } : {}) },
         responseType: 'blob',
       })
       downloadBlob(res.data, `relatorio_demandas.${formato === 'pdf' ? 'pdf' : 'xlsx'}`)
@@ -112,13 +104,12 @@ export default function DemandasPage() {
 
   const fecharModal = () => {
     setShowModal(false); setDuplicado(null)
-    setGepNumero(''); setAssunto(''); setInteressado(''); setDescricao(''); setTipoDemandaId(''); setPrioridade('MEDIA')
+    setGepNumero(''); setAssunto(''); setInteressado(''); setDescricao(''); setPrioridade('MEDIA')
   }
 
   const createMutation = useMutation({
     mutationFn: (confirmarDuplicado?: boolean) => api.post('/api/demandas', {
       gepNumero, gepAno, assunto, interessado, descricao, prioridade,
-      tipoDemandaId: tipoDemandaId || undefined,
       ...(confirmarDuplicado ? { confirmarDuplicado: true } : {}),
     }),
     onSuccess: () => {
@@ -221,10 +212,6 @@ export default function DemandasPage() {
           <select className="input sm:w-44" value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
             <option value="">Todos os status</option>
             {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
-          <select className="input sm:w-44" value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
-            <option value="">Todos os tipos</option>
-            {tiposDemanda.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
           </select>
           <select className="input sm:w-36" value={filtroPrioridade} onChange={e => setFiltroPrioridade(e.target.value)}>
             <option value="">Toda prioridade</option>
@@ -411,19 +398,6 @@ export default function DemandasPage() {
                 <select className="input" value={prioridade} onChange={e => setPrioridade(e.target.value as Prioridade)}>
                   {Object.entries(PRIORIDADE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="label">Tipo de demanda (opcional)</label>
-                <select className="input" value={tipoDemandaId} onChange={e => setTipoDemandaId(e.target.value)}>
-                  <option value="">Nenhum — atribuir atividades manualmente</option>
-                  {tiposDemanda.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
-                </select>
-                {tipoDemandaId && (
-                  <p className="text-xs text-primary-600 mt-1">
-                    A 1ª etapa deste tipo será criada automaticamente. As próximas etapas
-                    nascem sozinhas, uma de cada vez, conforme cada atividade for aprovada.
-                  </p>
-                )}
               </div>
               <div>
                 <label className="label">Interessado / Loteamento</label>
