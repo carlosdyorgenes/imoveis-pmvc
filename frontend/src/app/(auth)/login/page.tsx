@@ -73,7 +73,8 @@ export default function LoginPage() {
 
         {/* Card de login */}
         <div className="bg-white rounded-2xl shadow-2xl p-8">
-          <h2 className="text-lg font-semibold text-gray-800 mb-5 text-center">Acesso ao Sistema</h2>
+          <h2 className="text-lg font-semibold text-gray-800 text-center">Acesso ao Sistema</h2>
+          <p className="text-xs text-gray-500 text-center mb-5">Gerências de Bens Imóveis</p>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
               <label className="label">Email</label>
@@ -120,6 +121,9 @@ export default function LoginPage() {
           {/* Aviso de acesso restrito */}
           <p className="mt-5 text-center text-xs text-gray-400 border-t border-gray-100 pt-4">
             Acesso restrito a servidores autorizados
+          </p>
+          <p className="mt-1 text-center text-[11px] text-gray-400">
+            Todos os direitos reservados - Desenvolvido por: Carlos Dyorgenes Silva Santana - Matrícula: 30838-4
           </p>
         </div>
       </div>
