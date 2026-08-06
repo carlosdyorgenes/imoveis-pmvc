@@ -1,15 +1,17 @@
-// Isolamento de processos entre áreas (Seção 28): um usuário PADRAO só deve enxergar uma
-// atividade se for responsável direto dela ou membro da equipe à qual ela foi atribuída.
-// Quem abriu a demanda (solicitante) e o MASTER enxergam todas as atividades, pois precisam
-// distribuir/analisar o processo inteiro — a restrição vale só para usuários de setor.
-
+// Isolamento entre usuários da mesma equipe: a distribuição automática (ver
+// domain/balanceamento.ts) sempre escolhe UM responsável específico — a partir daí, só essa
+// pessoa enxerga/age na atividade, mesmo os colegas de equipe dela não veem. equipeId continua
+// gravado (para o rótulo "Equipe: X" e para restringir a quem "Transferir tarefa" pode escolher),
+// mas só entra na conta de visibilidade no caso raro de a atividade não ter responsável definido
+// (ex.: dado legado). Quem abriu a demanda (solicitante) e o MASTER sempre veem tudo.
 export interface AtividadeVisibilidade {
   responsavelId: string | null
   equipeId: string | null
 }
 
 export function isResponsavelOuEquipeDaAtividade(atividade: AtividadeVisibilidade, userId: string, equipeIds: string[]): boolean {
-  return atividade.responsavelId === userId || (!!atividade.equipeId && equipeIds.includes(atividade.equipeId))
+  if (atividade.responsavelId) return atividade.responsavelId === userId
+  return !!atividade.equipeId && equipeIds.includes(atividade.equipeId)
 }
 
 // Filtra as atividades de uma demanda conforme quem está pedindo: MASTER e o solicitante veem

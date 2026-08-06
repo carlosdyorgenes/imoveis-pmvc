@@ -65,8 +65,12 @@ async function registrarHistorico(demandaId: string, userId: string, acao: strin
 }
 
 // Verifica se o usuário é responsável direto ou membro da equipe atribuída à atividade
+// Só o responsável específico da atividade pode agir nela — um colega da mesma equipe que
+// não foi o escolhido pela distribuição automática não é "responsável" (precisa de
+// transferência explícita para assumir). O fallback por equipe só vale quando não há
+// responsável individual definido (caso raro, dado legado).
 async function isResponsavelDaAtividade(userId: string, atividade: { responsavelId: string | null; equipeId: string | null }) {
-  if (atividade.responsavelId === userId) return true
+  if (atividade.responsavelId) return atividade.responsavelId === userId
   if (atividade.equipeId) {
     const membro = await prisma.equipeMembro.findUnique({
       where: { equipeId_userId: { equipeId: atividade.equipeId, userId } },
@@ -82,12 +86,16 @@ async function getEquipeIdsDoUsuario(userId: string): Promise<string[]> {
 }
 
 // Notifica o(s) responsável(is) de uma atividade (usuário direto ou todos os membros da equipe)
+// Notifica só quem de fato vê a atividade: o responsável individual quando definido, ou
+// (fallback raro, sem responsável ainda) todos os membros da equipe — nunca os dois ao mesmo
+// tempo, pra não notificar colegas que não têm acesso à atividade de outra pessoa.
 async function notificarResponsaveis(atividade: { id: string; responsavelId: string | null; equipeId: string | null; demandaId: string; titulo: string }, tipo: string, mensagem: string) {
-  const userIds: string[] = []
-  if (atividade.responsavelId) userIds.push(atividade.responsavelId)
-  if (atividade.equipeId) {
+  let userIds: string[] = []
+  if (atividade.responsavelId) {
+    userIds = [atividade.responsavelId]
+  } else if (atividade.equipeId) {
     const membros = await prisma.equipeMembro.findMany({ where: { equipeId: atividade.equipeId } })
-    userIds.push(...membros.map(m => m.userId))
+    userIds = membros.map(m => m.userId)
   }
   for (const userId of [...new Set(userIds)]) {
     await notificar(userId, tipo, mensagem, { demandaId: atividade.demandaId, atividadeId: atividade.id })
@@ -136,7 +144,7 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
     prisma.atividade.count({
       where: {
         status: { in: ['ATRIBUIDA', 'EM_ANDAMENTO'] },
-        OR: [{ responsavelId: uid }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds } }] : [])],
+        OR: [{ responsavelId: uid }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds }, responsavelId: null }] : [])],
       },
     }),
     prisma.atividade.count({ where: { status: 'CONCLUIDA', solicitanteId: uid } }),
@@ -177,7 +185,9 @@ demandasRouter.get('/atividades/minhas', async (req: AuthRequest, res) => {
   const atividades = await prisma.atividade.findMany({
     where: {
       status: statusFiltro,
-      OR: [{ responsavelId: uid }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds } }] : [])],
+      // Só entra pela equipe quando não há responsável individual definido (dado legado) —
+      // uma atividade já atribuída a um colega não aparece na fila de quem não foi escolhido.
+      OR: [{ responsavelId: uid }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds }, responsavelId: null }] : [])],
     },
     include: {
       demanda: { select: { id: true, gepNumero: true, gepAno: true, assunto: true, prioridade: true } },
@@ -232,7 +242,7 @@ demandasRouter.get('/', async (req: AuthRequest, res) => {
     const equipeIds = await getEquipeIdsDoUsuario(req.user!.id)
     where.OR = [
       { solicitanteId: req.user!.id },
-      { atividades: { some: { OR: [{ responsavelId: req.user!.id }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds } }] : [])] } } },
+      { atividades: { some: { OR: [{ responsavelId: req.user!.id }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds }, responsavelId: null }] : [])] } } },
     ]
   }
 

@@ -17,6 +17,10 @@ describe('isResponsavelOuEquipeDaAtividade', () => {
   it('nega quando a atividade não tem equipe e o usuário não é o responsável', () => {
     expect(isResponsavelOuEquipeDaAtividade({ responsavelId: 'u1', equipeId: null }, 'u2', [])).toBe(false)
   })
+
+  it('nega para um colega da MESMA equipe quando já existe um responsável específico — só quem foi escolhido vê', () => {
+    expect(isResponsavelOuEquipeDaAtividade({ responsavelId: 'u1', equipeId: 'eq1' }, 'u2', ['eq1'])).toBe(false)
+  })
 })
 
 describe('filtrarAtividadesVisiveis — isolamento entre áreas', () => {

@@ -305,9 +305,12 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   if (!demanda) return <div className="p-8 text-center text-gray-400">Demanda não encontrada</div>
 
   const atividadeModal = demanda.atividades.find(a => a.id === atividadeAberta) || null
+  // Só o responsável específico atribuído pela distribuição automática age na atividade — um
+  // colega da mesma equipe que não foi o escolhido não é "responsável" (equipe só entra como
+  // fallback no caso raro de a atividade não ter nenhum responsável individual definido).
   const isResponsavelUsuario = (a: Atividade) => a.responsavel?.id === user?.id
   const isMembroEquipe = (a: Atividade) => !!a.equipe && !!equipes.find(e => e.id === a.equipe!.id)?.membros.some(m => m.user.id === user?.id)
-  const isResponsavel = (a: Atividade) => isResponsavelUsuario(a) || isMembroEquipe(a)
+  const isResponsavel = (a: Atividade) => (a.responsavel ? isResponsavelUsuario(a) : isMembroEquipe(a))
   const isSolicitante = (a: Atividade) => a.solicitante.id === user?.id
   const podeGerenciarChecklist = (a: Atividade) => isMaster || isResponsavel(a) || isSolicitante(a)
   // Checklist, observações e documentos só ficam liberados depois que a atividade foi
