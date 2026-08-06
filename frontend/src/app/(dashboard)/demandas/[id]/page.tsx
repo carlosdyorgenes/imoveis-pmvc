@@ -310,6 +310,9 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const isResponsavel = (a: Atividade) => isResponsavelUsuario(a) || isMembroEquipe(a)
   const isSolicitante = (a: Atividade) => a.solicitante.id === user?.id
   const podeGerenciarChecklist = (a: Atividade) => isMaster || isResponsavel(a) || isSolicitante(a)
+  // Checklist, observações e documentos só ficam liberados depois que a atividade foi
+  // iniciada ao menos uma vez (dataInicio preenchida) — antes disso, tudo fica bloqueado.
+  const podeEditarCampos = (a: Atividade) => podeGerenciarChecklist(a) && !!a.dataInicio
 
   return (
     <div>
@@ -640,7 +643,20 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               </button>
             </div>
 
+            {atividadeModal.status === 'ATRIBUIDA' && isResponsavel(atividadeModal) && (
+              <div className="px-5 pt-4">
+                <button onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'EM_ANDAMENTO' })} className="btn-primary w-full justify-center">
+                  Iniciar atividade
+                </button>
+              </div>
+            )}
+
             <div className="p-5 overflow-y-auto flex-1 space-y-4">
+              {!atividadeModal.dataInicio && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  Inicie a atividade para poder preencher o checklist, as observações e anexar documentos.
+                </p>
+              )}
               {atividadeModal.instrucoes && (
                 <div>
                   <p className="text-xs font-medium text-gray-500 mb-1">Instruções</p>
@@ -659,7 +675,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1.5">
                   <ListChecks className="w-3.5 h-3.5" /> Checklist
                 </p>
-                {podeGerenciarChecklist(atividadeModal) && (
+                {podeEditarCampos(atividadeModal) && (
                   <div className="flex gap-2 mb-2">
                     <input
                       className="input text-sm flex-1"
@@ -682,11 +698,11 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 ) : (
                   <div className="space-y-1.5">
                     {atividadeModal.passos.map(p => (
-                      <div key={p.id} className={`flex items-center gap-2 p-2 rounded-lg border text-sm ${p.concluido ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'} ${!podeGerenciarChecklist(atividadeModal) ? 'opacity-70' : ''}`}>
+                      <div key={p.id} className={`flex items-center gap-2 p-2 rounded-lg border text-sm ${p.concluido ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'} ${!podeEditarCampos(atividadeModal) ? 'opacity-70' : ''}`}>
                         <input
                           type="checkbox"
                           checked={p.concluido}
-                          disabled={!podeGerenciarChecklist(atividadeModal)}
+                          disabled={!podeEditarCampos(atividadeModal)}
                           onChange={e => togglePasso.mutate({ id: p.id, concluido: e.target.checked })}
                           className="w-4 h-4 accent-green-600 flex-shrink-0"
                         />
@@ -714,7 +730,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                         ) : (
                           <>
                             <span className={`flex-1 ${p.concluido ? 'text-gray-400 line-through' : 'text-gray-700'}`}>{p.descricao}</span>
-                            {podeGerenciarChecklist(atividadeModal) && (
+                            {podeEditarCampos(atividadeModal) && (
                               <>
                                 <button
                                   onClick={() => { setPassoEditando(p.id); setTextoEdicaoPasso(p.descricao) }}
@@ -749,9 +765,9 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   placeholder="Registre aqui qualquer informação pertinente sobre esta atividade..."
                   value={observacoesTexto}
                   onChange={e => setObservacoesTexto(e.target.value)}
-                  disabled={!podeGerenciarChecklist(atividadeModal)}
+                  disabled={!podeEditarCampos(atividadeModal)}
                 />
-                {podeGerenciarChecklist(atividadeModal) && (
+                {podeEditarCampos(atividadeModal) && (
                   <button
                     onClick={() => salvarObservacoes.mutate({ atividadeId: atividadeModal.id, observacoes: observacoesTexto })}
                     disabled={salvarObservacoes.isPending || observacoesTexto === (atividadeModal.observacoes || '')}
@@ -766,7 +782,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1.5">
                   <FileText className="w-3.5 h-3.5" /> Documentos
                 </p>
-                {podeGerenciarChecklist(atividadeModal) && (
+                {podeEditarCampos(atividadeModal) && (
                   <div className="space-y-2 mb-2">
                     <input className="input text-sm" placeholder="Nome do documento (ex: Planta, Memorial...)" value={novoDocNome} onChange={e => setNovoDocNome(e.target.value)} />
                     <div className="flex gap-2">
@@ -823,7 +839,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                             <ShieldCheck className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        {podeGerenciarChecklist(atividadeModal) && (
+                        {podeEditarCampos(atividadeModal) && (
                           <button onClick={() => deleteDocumento.mutate(d.id)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -836,11 +852,6 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
             </div>
 
             <div className="p-5 border-t border-gray-100 space-y-2">
-              {atividadeModal.status === 'ATRIBUIDA' && isResponsavel(atividadeModal) && (
-                <button onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'EM_ANDAMENTO' })} className="btn-primary w-full justify-center">
-                  Iniciar atividade
-                </button>
-              )}
               {atividadeModal.status === 'AGUARDANDO_INFORMACAO' && isResponsavel(atividadeModal) && (
                 <button onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'EM_ANDAMENTO' })} className="btn-primary w-full justify-center">
                   Retomar atividade
