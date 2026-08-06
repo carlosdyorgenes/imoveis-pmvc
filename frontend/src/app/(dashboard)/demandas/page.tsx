@@ -171,9 +171,11 @@ export default function DemandasPage() {
               <FileUp className="w-3.5 h-3.5" /> Importar .docx
             </Link>
           )}
-          <button onClick={() => setShowModal(true)} className="btn-primary">
-            <Plus className="w-4 h-4" /> Nova Demanda
-          </button>
+          {isMaster && (
+            <button onClick={() => setShowModal(true)} className="btn-primary">
+              <Plus className="w-4 h-4" /> Nova Demanda
+            </button>
+          )}
         </div>
       </div>
 

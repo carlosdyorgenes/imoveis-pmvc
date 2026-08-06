@@ -292,7 +292,7 @@ demandasRouter.get('/:id', async (req: AuthRequest, res) => {
 const GEP_NUMERO_REGEX = /^\d+$/
 const GEP_ANO_REGEX = /^\d{4}$/
 
-demandasRouter.post('/', async (req: AuthRequest, res) => {
+demandasRouter.post('/', requireMaster, async (req: AuthRequest, res) => {
   const { gepNumero: gepNumeroRaw, gepAno: gepAnoRaw, assunto, descricao, interessado, prazo, prioridade, confirmarDuplicado } = req.body
   const gepNumero = (gepNumeroRaw || '').trim().replace(/\s+/g, '')
   const gepAno = (gepAnoRaw || '').trim().replace(/\s+/g, '')
