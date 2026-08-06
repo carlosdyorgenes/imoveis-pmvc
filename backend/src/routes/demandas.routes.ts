@@ -8,9 +8,10 @@ import { authenticate, requireMaster, AuthRequest } from '../middleware/auth'
 import { AppError } from '../middleware/errorHandler'
 import { createLog } from '../utils/logger'
 import { notificar } from '../utils/notificar'
-import { TRANSICOES_DEMANDA, TRANSICOES_ATIVIDADE, transicaoValida, AÇÕES_DO_RESPONSAVEL, AÇÕES_DO_SOLICITANTE } from '../domain/estados'
+import { TRANSICOES_DEMANDA, TRANSICOES_ATIVIDADE, transicaoValida, AÇÕES_DO_RESPONSAVEL, AÇÕES_DO_SOLICITANTE, STATUS_ATIVIDADE_ATIVOS } from '../domain/estados'
 import { calcularTemposAtividade } from '../domain/tempos'
 import { isResponsavelOuEquipeDaAtividade, filtrarAtividadesVisiveis } from '../domain/visibilidade'
+import { escolherResponsavelComMenorCarga } from '../domain/balanceamento'
 
 export const demandasRouter = Router()
 demandasRouter.use(authenticate)
@@ -397,9 +398,9 @@ demandasRouter.put('/:id/status', async (req: AuthRequest, res) => {
 // ===== Atividades =====
 
 demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
-  const { titulo, instrucoes, responsavelId, equipeId, prazo, anexoObrigatorio } = req.body
+  const { titulo, instrucoes, equipeId, prazo, anexoObrigatorio } = req.body
   if (!titulo?.trim()) throw new AppError('Título da atividade é obrigatório')
-  if (!responsavelId && !equipeId) throw new AppError('Informe um responsável ou uma equipe')
+  if (!equipeId) throw new AppError('Informe a equipe responsável')
 
   const demanda = await prisma.demanda.findUnique({ where: { id: req.params.demandaId } })
   if (!demanda) throw new AppError('Demanda não encontrada', 404)
@@ -408,25 +409,28 @@ demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
     throw new AppError('Somente quem criou a demanda (ou o Master) pode atribuir atividades', 403)
   }
 
-  let responsavelNome = ''
-  if (responsavelId) {
-    const responsavel = await prisma.user.findUnique({ where: { id: responsavelId } })
-    if (!responsavel || !responsavel.active) throw new AppError('Responsável inválido')
-    responsavelNome = responsavel.name
-  }
-  if (equipeId) {
-    const equipe = await prisma.equipe.findUnique({ where: { id: equipeId } })
-    if (!equipe || !equipe.ativo) throw new AppError('Equipe inválida')
-    responsavelNome = equipe.nome
-  }
+  const equipe = await prisma.equipe.findUnique({ where: { id: equipeId } })
+  if (!equipe || !equipe.ativo) throw new AppError('Equipe inválida')
+
+  // Distribuição automática: escolhe o membro ativo da equipe com menos atividades em aberto
+  // no momento, para nunca sobrecarregar sempre a mesma pessoa.
+  const membros = await prisma.equipeMembro.findMany({ where: { equipeId, user: { active: true } }, select: { userId: true } })
+  if (membros.length === 0) throw new AppError('Esta equipe não possui membros ativos para receber a atividade')
+
+  const cargas = await Promise.all(membros.map(async m => ({
+    userId: m.userId,
+    ativas: await prisma.atividade.count({ where: { responsavelId: m.userId, status: { in: STATUS_ATIVIDADE_ATIVOS as any } } }),
+  })))
+  const responsavelId = escolherResponsavelComMenorCarga(cargas)!
+  const responsavel = await prisma.user.findUnique({ where: { id: responsavelId }, select: { name: true } })
 
   const atividade = await prisma.atividade.create({
     data: {
       demandaId: demanda.id,
       titulo: titulo.trim(),
       instrucoes,
-      responsavelId: responsavelId || null,
-      equipeId: equipeId || null,
+      responsavelId,
+      equipeId,
       solicitanteId: req.user!.id,
       prazo: prazo ? new Date(prazo) : null,
       anexoObrigatorio: !!anexoObrigatorio,
@@ -438,8 +442,8 @@ demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
     await prisma.demanda.update({ where: { id: demanda.id }, data: { status: 'EM_ANDAMENTO' } })
   }
 
-  await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" atribuída a ${responsavelNome}`, atividade.id)
-  await notificarResponsaveis(atividade, 'ATIVIDADE_ATRIBUIDA', `Nova atividade "${atividade.titulo}" (GEP ${demanda.gepNumero}/${demanda.gepAno})`)
+  await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" atribuída a ${responsavel?.name} (equipe ${equipe.nome}, por menor carga)`, atividade.id)
+  await notificar(responsavelId, 'ATIVIDADE_ATRIBUIDA', `Nova atividade "${atividade.titulo}" (GEP ${demanda.gepNumero}/${demanda.gepAno})`, { demandaId: demanda.id, atividadeId: atividade.id })
   res.status(201).json(atividade)
 })
 

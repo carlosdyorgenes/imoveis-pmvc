@@ -49,8 +49,6 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
 
   const [showNovaAtividade, setShowNovaAtividade] = useState(false)
   const [novoTitulo, setNovoTitulo] = useState('')
-  const [tipoAtribuicao, setTipoAtribuicao] = useState<'usuario' | 'equipe'>('usuario')
-  const [novoResponsavel, setNovoResponsavel] = useState('')
   const [novaEquipe, setNovaEquipe] = useState('')
   const [novasInstrucoes, setNovasInstrucoes] = useState('')
   const [novoAnexoObrigatorio, setNovoAnexoObrigatorio] = useState(false)
@@ -115,13 +113,13 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     mutationFn: () => api.post(`/api/demandas/${id}/atividades`, {
       titulo: novoTitulo,
       instrucoes: novasInstrucoes,
-      responsavelId: tipoAtribuicao === 'usuario' ? novoResponsavel : undefined,
-      equipeId: tipoAtribuicao === 'equipe' ? novaEquipe : undefined,
+      equipeId: novaEquipe,
       anexoObrigatorio: novoAnexoObrigatorio,
     }),
-    onSuccess: () => {
-      invalidar(); toast.success('Atividade atribuída')
-      setShowNovaAtividade(false); setNovoTitulo(''); setNovoResponsavel(''); setNovaEquipe(''); setNovasInstrucoes(''); setNovoAnexoObrigatorio(false)
+    onSuccess: (res) => {
+      invalidar()
+      toast.success(`Atividade atribuída a ${res.data.responsavel?.name || 'um membro da equipe'}`)
+      setShowNovaAtividade(false); setNovoTitulo(''); setNovaEquipe(''); setNovasInstrucoes(''); setNovoAnexoObrigatorio(false)
     },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao criar atividade'))
   })
@@ -334,22 +332,14 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 <input className="input" placeholder="Ex: Elaborar parecer jurídico" value={novoTitulo} onChange={e => setNovoTitulo(e.target.value)} autoFocus />
               </div>
               <div>
-                <label className="label">Atribuir a</label>
-                <div className="flex gap-2 mb-2">
-                  <button type="button" onClick={() => setTipoAtribuicao('usuario')} className={`text-xs px-3 py-1.5 rounded-lg border ${tipoAtribuicao === 'usuario' ? 'bg-primary-50 border-primary-300 text-primary-700' : 'border-gray-200 text-gray-500'}`}>Usuário</button>
-                  <button type="button" onClick={() => setTipoAtribuicao('equipe')} className={`text-xs px-3 py-1.5 rounded-lg border ${tipoAtribuicao === 'equipe' ? 'bg-primary-50 border-primary-300 text-primary-700' : 'border-gray-200 text-gray-500'}`}>Equipe</button>
-                </div>
-                {tipoAtribuicao === 'usuario' ? (
-                  <select className="input" value={novoResponsavel} onChange={e => setNovoResponsavel(e.target.value)}>
-                    <option value="">Selecione o responsável...</option>
-                    {usuarios.filter(u => u.active).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
-                ) : (
-                  <select className="input" value={novaEquipe} onChange={e => setNovaEquipe(e.target.value)}>
-                    <option value="">Selecione a equipe...</option>
-                    {equipes.filter(e => e.ativo).map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-                  </select>
-                )}
+                <label className="label">Equipe responsável</label>
+                <select className="input" value={novaEquipe} onChange={e => setNovaEquipe(e.target.value)}>
+                  <option value="">Selecione a equipe...</option>
+                  {equipes.filter(e => e.ativo).map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  A atividade é atribuída automaticamente a quem, na equipe, tiver menos atividades em aberto no momento.
+                </p>
               </div>
               <div>
                 <label className="label">Instruções / solicitação específica</label>
@@ -362,8 +352,8 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               <div className="flex gap-2">
                 <button onClick={() => setShowNovaAtividade(false)} className="btn-secondary flex-1 justify-center text-xs">Cancelar</button>
                 <button
-                  onClick={() => novoTitulo.trim() && (novoResponsavel || novaEquipe) && createAtividade.mutate()}
-                  disabled={!novoTitulo.trim() || (!novoResponsavel && !novaEquipe) || createAtividade.isPending}
+                  onClick={() => novoTitulo.trim() && novaEquipe && createAtividade.mutate()}
+                  disabled={!novoTitulo.trim() || !novaEquipe || createAtividade.isPending}
                   className="btn-primary flex-1 justify-center text-xs"
                 >
                   Atribuir

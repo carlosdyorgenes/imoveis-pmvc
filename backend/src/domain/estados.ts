@@ -33,3 +33,7 @@ export function transicaoValida(tabela: Record<string, string[]>, statusAtual: s
 // Ações da atividade e quem pode executá-las (usadas pela camada de autorização das rotas)
 export const AÇÕES_DO_RESPONSAVEL = ['EM_ANDAMENTO', 'CONCLUIDA']
 export const AÇÕES_DO_SOLICITANTE = ['APROVADA', 'DEVOLVIDA']
+
+// Status em que a atividade ainda está "na fila" de alguém — usado tanto para ordenar a fila
+// do usuário quanto para calcular a carga de trabalho na distribuição automática por equipe.
+export const STATUS_ATIVIDADE_ATIVOS = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA']
