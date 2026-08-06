@@ -53,6 +53,26 @@ authRouter.post('/logout', authenticate, async (req: AuthRequest, res) => {
   res.json({ message: 'Logout realizado' })
 })
 
+// Troca de senha self-service — disponível para qualquer usuário autenticado (não só MASTER).
+// Exige a senha atual para confirmar que quem está com a sessão aberta é realmente o dono dela.
+authRouter.put('/change-password', authenticate, async (req: AuthRequest, res) => {
+  const { senhaAtual, novaSenha } = req.body
+  if (!senhaAtual || !novaSenha) throw new AppError('Informe a senha atual e a nova senha')
+  if (novaSenha.length < 6) throw new AppError('A nova senha deve ter ao menos 6 caracteres')
+
+  const user = await prisma.user.findUnique({ where: { id: req.user!.id } })
+  if (!user) throw new AppError('Usuário não encontrado', 404)
+
+  const valid = await bcrypt.compare(senhaAtual, user.password)
+  if (!valid) throw new AppError('Senha atual incorreta', 401)
+
+  const hash = await bcrypt.hash(novaSenha, 10)
+  await prisma.user.update({ where: { id: user.id }, data: { password: hash } })
+  await createLog({ userId: user.id, action: 'CHANGE_PASSWORD', entity: 'USER', entityId: user.id, ip: req.ip })
+
+  res.json({ message: 'Senha alterada com sucesso' })
+})
+
 // Solicitar redefinição de senha
 authRouter.post('/forgot-password', async (req, res) => {
   const { email } = req.body

@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import {
   Building2, LayoutDashboard, MapPin, ClipboardList,
-  KanbanSquare, BarChart3, Users, ScrollText, LogOut, Menu, X, Bell, FileStack, UsersRound, ShieldCheck, ListTodo
+  KanbanSquare, BarChart3, Users, ScrollText, LogOut, Menu, X, Bell, FileStack, UsersRound, ShieldCheck, ListTodo, KeyRound
 } from 'lucide-react'
 import { useState } from 'react'
 import toast from 'react-hot-toast'
@@ -48,6 +48,11 @@ export function Sidebar() {
   const [resolvingId, setResolvingId] = useState<string | null>(null)
   const [novaSenha, setNovaSenha] = useState('')
   const [showNotificacoes, setShowNotificacoes] = useState(false)
+
+  const [showTrocarSenha, setShowTrocarSenha] = useState(false)
+  const [senhaAtual, setSenhaAtual] = useState('')
+  const [novaSenhaConta, setNovaSenhaConta] = useState('')
+  const [confirmarSenha, setConfirmarSenha] = useState('')
 
   const { data: notifCount } = useQuery({
     queryKey: ['notificacoes-count'],
@@ -101,6 +106,15 @@ export function Sidebar() {
       qc.invalidateQueries({ queryKey: ['password-requests-count'] })
     },
     onError: () => toast.error('Erro ao redefinir senha')
+  })
+
+  const trocarSenhaMutation = useMutation({
+    mutationFn: () => api.put('/api/auth/change-password', { senhaAtual, novaSenha: novaSenhaConta }),
+    onSuccess: () => {
+      toast.success('Senha alterada com sucesso')
+      setShowTrocarSenha(false); setSenhaAtual(''); setNovaSenhaConta(''); setConfirmarSenha('')
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.error || 'Erro ao trocar senha')
   })
 
   const handleLogout = async () => {
@@ -219,6 +233,13 @@ export function Sidebar() {
               <p className="text-xs text-primary-300">{user?.role === 'MASTER' ? 'Administrador' : 'Padrão'}</p>
             </div>
           </div>
+          <button
+            onClick={() => { setShowTrocarSenha(true); setSenhaAtual(''); setNovaSenhaConta(''); setConfirmarSenha('') }}
+            className="flex items-center gap-2 text-primary-300 hover:text-white text-sm w-full px-2 py-1.5 rounded-lg hover:bg-white/10 transition-colors mb-1"
+          >
+            <KeyRound className="w-4 h-4" />
+            Trocar minha senha
+          </button>
           <button onClick={handleLogout} className="flex items-center gap-2 text-primary-300 hover:text-white text-sm w-full px-2 py-1.5 rounded-lg hover:bg-white/10 transition-colors">
             <LogOut className="w-4 h-4" />
             Sair
@@ -343,6 +364,65 @@ export function Sidebar() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de troca da própria senha — disponível para qualquer usuário logado */}
+      {showTrocarSenha && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-gray-800">Trocar minha senha</h3>
+              <button onClick={() => setShowTrocarSenha(false)} className="p-1 hover:bg-gray-100 rounded-lg">
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="label">Senha atual</label>
+                <input
+                  type="password"
+                  className="input"
+                  value={senhaAtual}
+                  onChange={e => setSenhaAtual(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="label">Nova senha</label>
+                <input
+                  type="password"
+                  className="input"
+                  placeholder="Mínimo 6 caracteres"
+                  value={novaSenhaConta}
+                  onChange={e => setNovaSenhaConta(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">Confirmar nova senha</label>
+                <input
+                  type="password"
+                  className="input"
+                  value={confirmarSenha}
+                  onChange={e => setConfirmarSenha(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && senhaAtual && novaSenhaConta.length >= 6 && novaSenhaConta === confirmarSenha && trocarSenhaMutation.mutate()}
+                />
+                {confirmarSenha && novaSenhaConta !== confirmarSenha && (
+                  <p className="text-xs text-red-500 mt-1">As senhas não coincidem</p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setShowTrocarSenha(false)} className="btn-secondary flex-1 justify-center text-xs">Cancelar</button>
+              <button
+                onClick={() => trocarSenhaMutation.mutate()}
+                disabled={!senhaAtual || novaSenhaConta.length < 6 || novaSenhaConta !== confirmarSenha || trocarSenhaMutation.isPending}
+                className="btn-primary flex-1 justify-center text-xs"
+              >
+                {trocarSenhaMutation.isPending ? 'Salvando...' : 'Salvar nova senha'}
+              </button>
             </div>
           </div>
         </div>
