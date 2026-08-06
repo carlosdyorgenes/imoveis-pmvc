@@ -8,8 +8,6 @@ import { authenticate, requireMaster, AuthRequest } from '../middleware/auth'
 import { AppError } from '../middleware/errorHandler'
 import { createLog } from '../utils/logger'
 import { notificar } from '../utils/notificar'
-import { extrairParagrafosDocx, extrairItensCandidatos } from '../utils/docxParser'
-import { previewImportacao } from '../data/previewImportacao'
 import { TRANSICOES_DEMANDA, TRANSICOES_ATIVIDADE, transicaoValida, AÇÕES_DO_RESPONSAVEL, AÇÕES_DO_SOLICITANTE } from '../domain/estados'
 import { calcularTemposAtividade } from '../domain/tempos'
 import { isResponsavelOuEquipeDaAtividade, filtrarAtividadesVisiveis } from '../domain/visibilidade'
@@ -960,88 +958,3 @@ demandasRouter.delete('/comentarios/:id', async (req: AuthRequest, res) => {
   res.json({ message: 'Comentário removido' })
 })
 
-// ===== Importador assistido do DOCX de pendências antigas =====
-// Não importa automaticamente: apresenta prévia extraída do documento de referência
-// para revisão e correção manual antes de qualquer gravação em produção.
-
-demandasRouter.get('/importar/preview', requireMaster, async (req, res) => {
-  res.json(previewImportacao)
-})
-
-// Importador genérico: aceita qualquer .docx (não só o documento de referência fixo),
-// extrai o texto real e devolve uma prévia heurística (best-effort, baseada em regex de
-// padrão GEP "numero/ano") para revisão manual. Nunca grava nada — apenas processa em
-// memória e descarta o arquivo (sem persistir no volume, diferente do upload de documentos).
-const uploadDocxTemp = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
-
-demandasRouter.post('/importar/upload-preview', requireMaster, (req: AuthRequest, res, next) => {
-  uploadDocxTemp.single('arquivo')(req, res, (err) => {
-    if (err) return next(new AppError(err.message || 'Erro no upload do arquivo'))
-    next()
-  })
-}, async (req: AuthRequest, res) => {
-  const file = (req as AuthRequest & { file?: Express.Multer.File }).file
-  if (!file) throw new AppError('Nenhum arquivo enviado')
-  if (!file.originalname.toLowerCase().endsWith('.docx')) throw new AppError('Envie um arquivo .docx')
-
-  let paragrafos: string[]
-  try {
-    paragrafos = await extrairParagrafosDocx(file.buffer)
-  } catch {
-    throw new AppError('Não foi possível ler o arquivo — confirme que é um .docx válido')
-  }
-
-  const itens = extrairItensCandidatos(paragrafos)
-  res.json({
-    fonte: file.originalname,
-    totalParagrafos: paragrafos.length,
-    observacao: 'Prévia extraída automaticamente por heurística (padrão GEP "número/ano"). Revise e corrija cada item antes de confirmar — nada foi salvo ainda.',
-    itens,
-  })
-})
-
-interface ItemImportacao {
-  gepNumero?: string | null
-  gepAno?: string | null
-  referenciaComplementar?: string
-  assunto: string
-  interessado?: string
-  descricao?: string
-  checklistSugerido?: { item: string; status: string }[]
-}
-
-// Recebe os itens já revisados/corrigidos pelo administrador e cria as demandas de fato.
-// Itens sem GEP válido são rejeitados (GEP é obrigatório para novas demandas, conforme regra do sistema).
-demandasRouter.post('/importar/confirmar', requireMaster, async (req: AuthRequest, res) => {
-  const { itens } = req.body as { itens: ItemImportacao[] }
-  if (!Array.isArray(itens) || itens.length === 0) throw new AppError('Nenhum item informado para importação')
-
-  const criadas: string[] = []
-  const rejeitados: { item: string; motivo: string }[] = []
-
-  for (const item of itens) {
-    if (!item.gepNumero?.trim() || !item.gepAno?.trim()) {
-      rejeitados.push({ item: item.assunto, motivo: 'GEP incompleto — corrija o número/ano antes de importar' })
-      continue
-    }
-    if (!item.assunto?.trim()) {
-      rejeitados.push({ item: item.assunto || '(sem assunto)', motivo: 'Assunto ausente' })
-      continue
-    }
-
-    const demanda = await prisma.demanda.create({
-      data: {
-        gepNumero: item.gepNumero.trim(),
-        gepAno: item.gepAno.trim(),
-        assunto: item.assunto.trim(),
-        descricao: item.descricao,
-        interessado: item.interessado,
-        solicitanteId: req.user!.id,
-      },
-    })
-    await registrarHistorico(demanda.id, req.user!.id, 'IMPORTACAO', 'Demanda criada via importação assistida do documento de referência')
-    criadas.push(demanda.id)
-  }
-
-  res.json({ criadas: criadas.length, rejeitados })
-})

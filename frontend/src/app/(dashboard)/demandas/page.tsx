@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Demanda, StatusDemanda, Prioridade } from '@/types'
 import Link from 'next/link'
-import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox, List, Columns3, FileUp, Trash2, ArrowUp, Minus, ArrowDown } from 'lucide-react'
+import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox, List, Columns3, Trash2, ArrowUp, Minus, ArrowDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -166,11 +166,6 @@ export default function DemandasPage() {
           <button onClick={() => baixarRelatorio('excel')} className="btn-secondary text-xs">
             <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
           </button>
-          {isMaster && (
-            <Link href="/demandas/importar" className="btn-secondary text-xs">
-              <FileUp className="w-3.5 h-3.5" /> Importar .docx
-            </Link>
-          )}
           {isMaster && (
             <button onClick={() => setShowModal(true)} className="btn-primary">
               <Plus className="w-4 h-4" /> Nova Demanda
