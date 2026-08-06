@@ -148,6 +148,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
       const nome = usuarios.find(u => u.id === vars.novoResponsavelId)?.name || ''
       toast.success(`Tarefa transferida para ${nome}`)
       setShowTransferir(false); setNovoResponsavelTransfer(''); setJustificativaTransfer('')
+      setAtividadeAberta(null)
     },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao transferir atividade'))
   })
