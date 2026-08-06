@@ -144,11 +144,16 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     mutationFn: ({ atividadeId, novoResponsavelId, justificativa }: { atividadeId: string; novoResponsavelId: string; justificativa: string }) =>
       api.put(`/api/demandas/atividades/${atividadeId}/transferir`, { novoResponsavelId, justificativa }),
     onSuccess: (_, vars) => {
-      invalidar()
       const nome = usuarios.find(u => u.id === vars.novoResponsavelId)?.name || ''
       toast.success(`Tarefa transferida para ${nome}`)
       setShowTransferir(false); setNovoResponsavelTransfer(''); setJustificativaTransfer('')
       setAtividadeAberta(null)
+      // Depois de transferir, quem transferiu pode nao ter mais acesso a atividade (ou a
+      // propria demanda). Volta pra listagem e forca recarregar os dados, pra a tela nao
+      // continuar mostrando a atividade que acabou de sair das maos dela.
+      qc.invalidateQueries({ queryKey: ['demandas'] })
+      router.push('/demandas')
+      router.refresh()
     },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao transferir atividade'))
   })
