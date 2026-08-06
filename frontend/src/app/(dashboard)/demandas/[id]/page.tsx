@@ -1,11 +1,11 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Demanda, Atividade, StatusAtividade, User, Equipe, Prioridade } from '@/types'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, MessageSquare, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check, StickyNote } from 'lucide-react'
+import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check, StickyNote } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -83,12 +83,6 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [pOrgaoEdicao, setPOrgaoEdicao] = useState('')
   const [pDescricaoEdicao, setPDescricaoEdicao] = useState('')
   const [pProtocoloEdicao, setPProtocoloEdicao] = useState('')
-
-  const [novoComentario, setNovoComentario] = useState('')
-  const [mencaoAberta, setMencaoAberta] = useState(false)
-  const [mencaoQuery, setMencaoQuery] = useState('')
-  const [mencaoInicio, setMencaoInicio] = useState(0)
-  const comentarioInputRef = useRef<HTMLInputElement>(null)
 
   const { data: demanda, isLoading } = useQuery<Demanda>({
     queryKey: ['demanda', id],
@@ -257,45 +251,6 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao excluir pendência'))
   })
 
-  const addComentario = useMutation({
-    mutationFn: () => api.post(`/api/demandas/${id}/comentarios`, { texto: novoComentario }),
-    onSuccess: () => { invalidar(); setNovoComentario(''); setMencaoAberta(false) },
-    onError: (e: any) => toast.error(errMsg(e, 'Erro ao comentar'))
-  })
-
-  // Autocomplete de menção: detecta um "@" sem espaço até o cursor e mostra sugestões
-  // de usuários ativos cujo nome contém o texto digitado depois do "@".
-  const handleComentarioChange = (texto: string, cursor: number) => {
-    setNovoComentario(texto)
-    const antesDoCursor = texto.slice(0, cursor)
-    const match = antesDoCursor.match(/@([^\s@]*)$/)
-    if (match) {
-      setMencaoAberta(true)
-      setMencaoQuery(match[1])
-      setMencaoInicio(cursor - match[1].length - 1)
-    } else {
-      setMencaoAberta(false)
-    }
-  }
-
-  const selecionarMencao = (nome: string) => {
-    const antes = novoComentario.slice(0, mencaoInicio)
-    const depois = novoComentario.slice(mencaoInicio + 1 + mencaoQuery.length)
-    const textoFinal = `${antes}@${nome} ${depois}`
-    setNovoComentario(textoFinal)
-    setMencaoAberta(false)
-    requestAnimationFrame(() => comentarioInputRef.current?.focus())
-  }
-
-  const sugestoesMencao = usuarios
-    .filter(u => u.active && u.name.toLowerCase().includes(mencaoQuery.toLowerCase()))
-    .slice(0, 6)
-
-  const deleteComentario = useMutation({
-    mutationFn: (comentarioId: string) => api.delete(`/api/demandas/comentarios/${comentarioId}`),
-    onSuccess: invalidar,
-    onError: (e: any) => toast.error(errMsg(e, 'Erro ao remover comentário'))
-  })
 
   useEffect(() => {
     const a = demanda?.atividades.find(a => a.id === atividadeAberta)
@@ -566,69 +521,6 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               ))}
               {(!demanda.historico || demanda.historico.length === 0) && (
                 <p className="text-xs text-gray-400 text-center py-4">Sem eventos registrados</p>
-              )}
-            </div>
-          </div>
-
-          <div className="card">
-            <h3 className="font-semibold text-sm text-gray-800 mb-2 flex items-center gap-1.5">
-              <MessageSquare className="w-4 h-4 text-primary-600" /> Comentários
-            </h3>
-            <div className="relative mb-3">
-              <div className="flex gap-2">
-                <input
-                  ref={comentarioInputRef}
-                  className="input text-sm flex-1"
-                  placeholder="Escreva um comentário... use @Nome para mencionar"
-                  value={novoComentario}
-                  onChange={e => handleComentarioChange(e.target.value, e.target.selectionStart || e.target.value.length)}
-                  onKeyDown={e => {
-                    if (e.key === 'Escape') setMencaoAberta(false)
-                    if (e.key === 'Enter' && !mencaoAberta && novoComentario.trim()) addComentario.mutate()
-                  }}
-                />
-                <button
-                  onClick={() => novoComentario.trim() && addComentario.mutate()}
-                  disabled={!novoComentario.trim() || addComentario.isPending}
-                  className="btn-primary text-xs"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              {mencaoAberta && sugestoesMencao.length > 0 && (
-                <div className="absolute left-0 right-12 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 overflow-hidden">
-                  {sugestoesMencao.map(u => (
-                    <button
-                      key={u.id}
-                      type="button"
-                      onMouseDown={e => { e.preventDefault(); selecionarMencao(u.name) }}
-                      className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-primary-50 hover:text-primary-700"
-                    >
-                      {u.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {(demanda.comentarios || []).map(c => (
-                <div key={c.id} className="bg-gray-50 rounded-lg p-2.5 group">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-xs font-medium text-gray-700">{c.user.name}</p>
-                      <p className="text-sm text-gray-600 mt-0.5">{c.texto}</p>
-                    </div>
-                    {(isMaster || c.userId === user?.id) && (
-                      <button onClick={() => deleteComentario.mutate(c.id)} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 flex-shrink-0">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-gray-400 mt-1">{format(new Date(c.createdAt), "dd/MM/yy HH:mm", { locale: ptBR })}</p>
-                </div>
-              ))}
-              {(!demanda.comentarios || demanda.comentarios.length === 0) && (
-                <p className="text-xs text-gray-400 text-center py-3">Nenhum comentário ainda</p>
               )}
             </div>
           </div>
