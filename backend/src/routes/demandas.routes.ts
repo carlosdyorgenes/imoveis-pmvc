@@ -883,6 +883,20 @@ async function assertPodeGerenciarPendencia(req: AuthRequest, demandaId: string)
   }
 }
 
+// Quando não sobra nenhuma pendência externa em aberto (AGUARDANDO/COBRADA) para a demanda,
+// tira ela de "Aguardando terceiro" automaticamente — mesma lógica inversa de quando a
+// primeira pendência é registrada (POST /:demandaId/pendencias já muda para AGUARDANDO_TERCEIRO).
+async function reavaliarAguardandoTerceiro(demandaId: string, userId: string) {
+  const demanda = await prisma.demanda.findUnique({ where: { id: demandaId } })
+  if (!demanda || demanda.status !== 'AGUARDANDO_TERCEIRO') return
+
+  const pendentes = await prisma.pendenciaExterna.count({ where: { demandaId, status: { not: 'RESPONDIDA' } } })
+  if (pendentes === 0) {
+    await prisma.demanda.update({ where: { id: demandaId }, data: { status: 'EM_ANDAMENTO' } })
+    await registrarHistorico(demandaId, userId, 'STATUS', 'Todas as pendências externas foram respondidas — demanda retomada automaticamente')
+  }
+}
+
 demandasRouter.put('/pendencias/:id', async (req: AuthRequest, res) => {
   const { status, resposta, orgao, descricao, protocolo, prazoEsperado } = req.body
   const pendencia = await prisma.pendenciaExterna.findUnique({ where: { id: req.params.id } })
@@ -906,6 +920,11 @@ demandasRouter.put('/pendencias/:id', async (req: AuthRequest, res) => {
 
   const descAcao = status ? `status -> ${status}` : 'dados atualizados'
   await registrarHistorico(pendencia.demandaId, req.user!.id, 'PENDENCIA_EXTERNA', `Pendência de ${pendencia.orgao}: ${descAcao}`)
+
+  if (status === 'RESPONDIDA') {
+    await reavaliarAguardandoTerceiro(pendencia.demandaId, req.user!.id)
+  }
+
   res.json(atualizada)
 })
 
@@ -916,6 +935,8 @@ demandasRouter.delete('/pendencias/:id', async (req: AuthRequest, res) => {
 
   await prisma.pendenciaExterna.delete({ where: { id: pendencia.id } })
   await registrarHistorico(pendencia.demandaId, req.user!.id, 'PENDENCIA_EXTERNA', `Pendência de ${pendencia.orgao} removida`)
+  await reavaliarAguardandoTerceiro(pendencia.demandaId, req.user!.id)
+
   res.json({ message: 'Pendência removida' })
 })
 
