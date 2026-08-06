@@ -149,9 +149,11 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
       setShowTransferir(false); setNovoResponsavelTransfer(''); setJustificativaTransfer('')
       setAtividadeAberta(null)
       // Depois de transferir, quem transferiu pode nao ter mais acesso a atividade (ou a
-      // propria demanda). Volta pra listagem e forca recarregar os dados, pra a tela nao
-      // continuar mostrando a atividade que acabou de sair das maos dela.
+      // propria demanda). Volta pra listagem e forca recarregar os dados — inclusive o cache
+      // de "Minha Fila" — pra nenhuma tela continuar mostrando a atividade que acabou de sair
+      // das maos dela.
       qc.invalidateQueries({ queryKey: ['demandas'] })
+      qc.invalidateQueries({ queryKey: ['minha-fila'] })
       router.push('/demandas')
       router.refresh()
     },
