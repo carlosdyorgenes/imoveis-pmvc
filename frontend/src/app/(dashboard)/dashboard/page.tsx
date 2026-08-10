@@ -29,6 +29,8 @@ interface PainelDemandas {
   concluidasMesAnterior: number
   tempoMedioConclusaoDias: number | null
   taxaDevolucao: number
+  atrasadasNaMinhaEquipe: number
+  alertaCruzadoPrazo: number
 }
 
 function KpiCard({ icon: Icon, label, value, sub, tone = 'text-gray-800', href }: {
@@ -146,6 +148,15 @@ export default function DashboardPage() {
                 })}
               </div>
             </div>
+          </div>
+        )}
+
+        {painel && painel.alertaCruzadoPrazo > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 mb-3 flex items-center gap-2 text-xs text-amber-800">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            <span>
+              <strong>{painel.alertaCruzadoPrazo}</strong> demanda(s) com o prazo geral vencido, mas cuja atividade em curso ainda não venceu no setor responsável — o card de atraso da equipe não vai sinalizar isso, só o prazo macro da demanda.
+            </span>
           </div>
         )}
 

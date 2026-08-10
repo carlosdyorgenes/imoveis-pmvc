@@ -52,6 +52,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [novaEquipe, setNovaEquipe] = useState('')
   const [novasInstrucoes, setNovasInstrucoes] = useState('')
   const [novoAnexoObrigatorio, setNovoAnexoObrigatorio] = useState(false)
+  const [novoPrazo, setNovoPrazo] = useState('')
 
   const [atividadeAberta, setAtividadeAberta] = useState<string | null>(null)
   const [novoPasso, setNovoPasso] = useState('')
@@ -113,11 +114,12 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
       instrucoes: novasInstrucoes,
       equipeId: novaEquipe,
       anexoObrigatorio: novoAnexoObrigatorio,
+      prazo: novoPrazo || null,
     }),
     onSuccess: (res) => {
       invalidar()
       toast.success(`Atividade atribuída a ${res.data.responsavel?.name || 'um membro da equipe'}`)
-      setShowNovaAtividade(false); setNovoTitulo(''); setNovaEquipe(''); setNovasInstrucoes(''); setNovoAnexoObrigatorio(false)
+      setShowNovaAtividade(false); setNovoTitulo(''); setNovaEquipe(''); setNovasInstrucoes(''); setNovoAnexoObrigatorio(false); setNovoPrazo('')
     },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao criar atividade'))
   })
@@ -320,7 +322,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-800">Atividades</h2>
             {(isMaster || demanda.solicitante.id === user?.id) && (
-              <button onClick={() => setShowNovaAtividade(true)} className="btn-primary text-xs">
+              <button onClick={() => { setNovoPrazo(demanda.prazo ? demanda.prazo.slice(0, 10) : ''); setShowNovaAtividade(true) }} className="btn-primary text-xs">
                 <Plus className="w-3.5 h-3.5" /> Nova Atividade
               </button>
             )}
@@ -346,6 +348,13 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 <label className="label">Instruções / solicitação específica</label>
                 <textarea className="input min-h-16 resize-none" placeholder="O que deve ser feito, qual resultado é esperado..." value={novasInstrucoes} onChange={e => setNovasInstrucoes(e.target.value)} />
               </div>
+              <div>
+                <label className="label">Prazo de execução (opcional)</label>
+                <input type="date" className="input" value={novoPrazo} onChange={e => setNovoPrazo(e.target.value)} />
+                <p className="text-xs text-gray-400 mt-1">
+                  Sugerido a partir do prazo da demanda, mas pode ser ajustado para esta atividade específica.
+                </p>
+              </div>
               <label className="flex items-center gap-2 text-xs text-gray-600">
                 <input type="checkbox" checked={novoAnexoObrigatorio} onChange={e => setNovoAnexoObrigatorio(e.target.checked)} className="w-3.5 h-3.5" />
                 Anexo obrigatório para finalizar esta atividade
@@ -370,6 +379,8 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
           {demanda.atividades.map(a => {
             const done = a.passos.filter(p => p.concluido).length
             const total = a.passos.length
+            const ativa = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'].includes(a.status)
+            const atrasada = ativa && a.prazo && new Date(a.prazo) < new Date()
             return (
               <button key={a.id} onClick={() => setAtividadeAberta(a.id)} className="card w-full text-left hover:shadow-md transition-shadow">
                 <div className="flex items-start justify-between gap-3">
@@ -378,6 +389,11 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                     <p className="text-xs text-gray-500 mt-0.5">
                       {a.equipe ? `Equipe: ${a.equipe.nome} · ` : ''}Responsável: {a.responsavel?.name || 'não definido'}
                     </p>
+                    {a.prazo && (
+                      <p className={`text-xs mt-0.5 flex items-center gap-1 ${atrasada ? 'text-red-600 font-medium' : 'text-gray-400'}`}>
+                        <Clock className="w-3 h-3" /> Prazo: {format(new Date(a.prazo), 'dd/MM/yy', { locale: ptBR })}{atrasada ? ' · atrasada' : ''}
+                      </p>
+                    )}
                     {total > 0 && (
                       <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
                         <ListChecks className="w-3 h-3" /> {done}/{total} passos concluídos

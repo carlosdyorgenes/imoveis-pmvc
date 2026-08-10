@@ -135,7 +135,7 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
   const inicioMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   const inicioMesAnterior = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)
 
-  const [porStatus, porPrioridade, totalAtrasadas, minhasEquipes, concluidasEsteMes, concluidasMesAnterior, demandasConcluidas, totalAtividadesAtivas, atividadesComDevolucao] = await Promise.all([
+  const [porStatus, porPrioridade, totalAtrasadas, minhasEquipes, concluidasEsteMes, concluidasMesAnterior, demandasConcluidas, totalAtividadesAtivas, atividadesComDevolucao, demandasAtrasadasComAtividades] = await Promise.all([
     prisma.demanda.groupBy({ by: ['status'], _count: true }),
     prisma.demanda.groupBy({ by: ['prioridade'], _count: true, where: { status: { notIn: ['CONCLUIDA', 'CANCELADA'] } } }),
     prisma.demanda.count({ where: { prazo: { lt: new Date() }, status: { notIn: ['CONCLUIDA', 'CANCELADA'] } } }),
@@ -146,11 +146,18 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
     prisma.demanda.findMany({ where: { status: 'CONCLUIDA' }, select: { createdAt: true, updatedAt: true }, orderBy: { updatedAt: 'desc' }, take: 200 }),
     prisma.atividade.count({ where: { status: { not: 'CANCELADA' } } }),
     prisma.atividade.count({ where: { status: { not: 'CANCELADA' }, motivoDevolucao: { not: null } } }),
+    // Base para o alerta cruzado: demanda com prazo geral vencido, mas cujas atividades em
+    // curso ainda não venceram (ou não têm prazo próprio) — some visível no card operacional
+    // por equipe, mas o prazo macro da demanda já estourou.
+    prisma.demanda.findMany({
+      where: { prazo: { lt: new Date() }, status: { notIn: ['CONCLUIDA', 'CANCELADA'] } },
+      select: { id: true, atividades: { where: { status: { in: STATUS_ATIVIDADE_ATIVOS as any } }, select: { prazo: true } } },
+    }),
   ])
 
   const equipeIds = minhasEquipes.map(m => m.equipeId)
 
-  const [minhasAtividadesPendentes, aguardandoMinhaAprovacao] = await Promise.all([
+  const [minhasAtividadesPendentes, aguardandoMinhaAprovacao, atrasadasNaMinhaEquipe] = await Promise.all([
     prisma.atividade.count({
       where: {
         status: { in: ['ATRIBUIDA', 'EM_ANDAMENTO'] },
@@ -158,7 +165,18 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
       },
     }),
     prisma.atividade.count({ where: { status: 'CONCLUIDA', solicitanteId: uid } }),
+    // Atrasadas por prazo da própria atividade (não da demanda), restrito às equipes do
+    // usuário logado — cada setor enxerga só o que é seu, em vez de um número geral opaco.
+    equipeIds.length
+      ? prisma.atividade.count({
+          where: { prazo: { lt: new Date() }, status: { in: STATUS_ATIVIDADE_ATIVOS as any }, equipeId: { in: equipeIds } },
+        })
+      : Promise.resolve(0),
   ])
+
+  const alertaCruzadoPrazo = demandasAtrasadasComAtividades.filter(
+    d => !d.atividades.some(a => a.prazo && a.prazo < new Date())
+  ).length
 
   const statusMap: Record<string, number> = {}
   for (const g of porStatus) statusMap[g.status] = g._count
@@ -185,6 +203,8 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
     concluidasMesAnterior,
     tempoMedioConclusaoDias,
     taxaDevolucao: totalAtividadesAtivas > 0 ? Math.round((atividadesComDevolucao / totalAtividadesAtivas) * 1000) / 10 : 0,
+    atrasadasNaMinhaEquipe,
+    alertaCruzadoPrazo,
   })
 })
 

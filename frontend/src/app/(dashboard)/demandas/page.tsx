@@ -155,6 +155,8 @@ export default function DemandasPage() {
       concluidasMesAnterior: number
       tempoMedioConclusaoDias: number | null
       taxaDevolucao: number
+      atrasadasNaMinhaEquipe: number
+      alertaCruzadoPrazo: number
     }),
     refetchInterval: 60_000,
   })
@@ -187,10 +189,11 @@ export default function DemandasPage() {
             <p className="text-xs text-gray-500 flex items-center gap-1"><FileStack className="w-3.5 h-3.5" /> Total de demandas</p>
             <p className="text-2xl font-bold text-gray-800 mt-1">{painel.totalDemandas}</p>
           </div>
-          <button onClick={() => setSomenteAtrasadas(true)} className="card py-3 text-left hover:shadow-md transition-shadow">
-            <p className="text-xs text-red-600 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Atrasadas</p>
-            <p className="text-2xl font-bold text-red-600 mt-1">{painel.totalAtrasadas}</p>
-          </button>
+          <div className="card py-3">
+            <p className="text-xs text-red-600 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Atrasadas na minha equipe</p>
+            <p className="text-2xl font-bold text-red-600 mt-1">{painel.atrasadasNaMinhaEquipe}</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">por prazo da atividade</p>
+          </div>
           <div className="card py-3">
             <p className="text-xs text-blue-600 flex items-center gap-1"><Inbox className="w-3.5 h-3.5" /> Minhas atividades pendentes</p>
             <p className="text-2xl font-bold text-blue-600 mt-1">{painel.minhasAtividadesPendentes}</p>
