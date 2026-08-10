@@ -714,6 +714,9 @@ demandasRouter.delete('/atividades/:id', async (req: AuthRequest, res) => {
   }
   await prisma.atividade.delete({ where: { id: atividade.id } })
   await registrarHistorico(atividade.demandaId, req.user!.id, 'ATIVIDADE_REMOVIDA', `Atividade "${atividade.titulo}" removida`, atividade.id)
+  // Remover a atividade muda o conjunto de "ativas" da demanda — reavalia pra não deixar o
+  // status desatualizado (ex.: ficar em Parcialmente concluída quando só resta atividade aprovada).
+  await atualizarStatusConformeAtividades(atividade.demandaId)
   res.json({ message: 'Atividade removida' })
 })
 
