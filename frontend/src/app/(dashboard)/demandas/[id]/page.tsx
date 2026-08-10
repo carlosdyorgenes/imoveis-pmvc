@@ -346,9 +346,6 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
           <p className="text-gray-500 text-sm">
             {demanda.assunto}{demanda.interessado ? ` — ${demanda.interessado}` : ''}
             {demanda.prazo && <span className="ml-2 text-xs text-gray-400">Prazo: {format(new Date(demanda.prazo), 'dd/MM/yy', { locale: ptBR })}</span>}
-            {statusExibido !== demanda.status && (
-              <span className="ml-2 text-xs text-gray-400">(concluída no seu setor — ainda em andamento em outro)</span>
-            )}
           </p>
         </div>
         {isMaster && (

@@ -431,9 +431,6 @@ export default function DemandasPage() {
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[statusExibido]}`}>
                         {STATUS_LABEL[statusExibido]}
                       </span>
-                      {statusExibido !== d.status && (
-                        <span className="block mt-1 text-[10px] text-gray-400">concluída no seu setor</span>
-                      )}
                       {d.prazo && new Date(d.prazo) < new Date() && !['CONCLUIDA', 'CANCELADA'].includes(d.status) && (
                         <span className="block mt-1 text-[10px] text-red-600 flex items-center gap-1">
                           <AlertTriangle className="w-2.5 h-2.5" /> Atrasada
