@@ -123,7 +123,9 @@ export default function LoginPage() {
             Acesso restrito a servidores autorizados
           </p>
           <p className="mt-1 text-center text-[11px] text-gray-400">
-            Todos os direitos reservados - Desenvolvido por: Carlos Dyorgenes Silva Santana - Matrícula: 30838-4
+            Todos os direitos reservados - Desenvolvido por:
+            <br />
+            Carlos Dyorgenes Silva Santana - Matrícula: 30838-4
           </p>
         </div>
       </div>
