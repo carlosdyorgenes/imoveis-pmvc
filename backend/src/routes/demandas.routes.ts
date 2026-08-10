@@ -496,6 +496,10 @@ demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
 
   if (demanda.status === 'ABERTA') {
     await prisma.demanda.update({ where: { id: demanda.id }, data: { status: 'EM_ANDAMENTO' } })
+  } else {
+    // Cobre o caso de uma atividade nova ser criada numa demanda já Concluída (ex.: reaberta
+    // para outro setor) — reavalia o status geral em vez de deixá-la presa como Concluída.
+    await atualizarStatusConformeAtividades(demanda.id)
   }
 
   await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" atribuída a ${responsavel?.name} (equipe ${equipe.nome}, por menor carga)`, atividade.id)
@@ -671,10 +675,14 @@ demandasRouter.put('/atividades/:id/transferir', async (req: AuthRequest, res) =
 // Deriva o status geral da demanda a partir do conjunto de atividades ativas (não canceladas):
 // todas aprovadas -> Concluída; algumas aprovadas e outras ainda em curso -> Parcialmente
 // concluída; nenhuma aprovada ainda -> não mexe (mantém EM_ANDAMENTO/ABERTA como está).
-// Não sobrescreve demandas já Concluídas/Canceladas/Arquivadas manualmente.
+// Reavalia mesmo quando a demanda já está Concluída: se uma nova atividade for criada depois
+// (ex.: reaberta para outro setor), a demanda deixa de estar 100% concluída e precisa voltar
+// a refletir isso (Parcialmente concluída/Em andamento) — do contrário ela fica "presa" como
+// Concluída para quem já viu essa etapa, enquanto o setor novo e o administrador ainda têm
+// trabalho pendente. Só não mexe em demanda Cancelada (encerramento manual e definitivo).
 async function atualizarStatusConformeAtividades(demandaId: string) {
   const demanda = await prisma.demanda.findUnique({ where: { id: demandaId } })
-  if (!demanda || ['CONCLUIDA', 'CANCELADA'].includes(demanda.status)) return
+  if (!demanda || demanda.status === 'CANCELADA') return
 
   const ativas = await prisma.atividade.findMany({ where: { demandaId, status: { not: 'CANCELADA' } } })
   if (ativas.length === 0) return
