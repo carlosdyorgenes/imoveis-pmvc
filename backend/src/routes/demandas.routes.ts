@@ -132,10 +132,20 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
   await escalonarPrazosVencidos()
   const uid = req.user!.id
 
-  const [porStatus, totalAtrasadas, minhasEquipes] = await Promise.all([
+  const inicioMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+  const inicioMesAnterior = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)
+
+  const [porStatus, porPrioridade, totalAtrasadas, minhasEquipes, concluidasEsteMes, concluidasMesAnterior, demandasConcluidas, totalAtividadesAtivas, atividadesComDevolucao] = await Promise.all([
     prisma.demanda.groupBy({ by: ['status'], _count: true }),
+    prisma.demanda.groupBy({ by: ['prioridade'], _count: true, where: { status: { notIn: ['CONCLUIDA', 'CANCELADA'] } } }),
     prisma.demanda.count({ where: { prazo: { lt: new Date() }, status: { notIn: ['CONCLUIDA', 'CANCELADA'] } } }),
     prisma.equipeMembro.findMany({ where: { userId: uid }, select: { equipeId: true } }),
+    prisma.demanda.count({ where: { status: 'CONCLUIDA', updatedAt: { gte: inicioMes } } }),
+    prisma.demanda.count({ where: { status: 'CONCLUIDA', updatedAt: { gte: inicioMesAnterior, lt: inicioMes } } }),
+    // Amostra das últimas concluídas para estimar tempo médio de ciclo (criação -> conclusão).
+    prisma.demanda.findMany({ where: { status: 'CONCLUIDA' }, select: { createdAt: true, updatedAt: true }, orderBy: { updatedAt: 'desc' }, take: 200 }),
+    prisma.atividade.count({ where: { status: { not: 'CANCELADA' } } }),
+    prisma.atividade.count({ where: { status: { not: 'CANCELADA' }, motivoDevolucao: { not: null } } }),
   ])
 
   const equipeIds = minhasEquipes.map(m => m.equipeId)
@@ -152,13 +162,29 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
 
   const statusMap: Record<string, number> = {}
   for (const g of porStatus) statusMap[g.status] = g._count
+  const totalDemandas = porStatus.reduce((acc, g) => acc + g._count, 0)
+  const totalAtivas = totalDemandas - (statusMap.CONCLUIDA || 0) - (statusMap.CANCELADA || 0)
+
+  const prioridadeMap: Record<string, number> = { ALTA: 0, MEDIA: 0, BAIXA: 0 }
+  for (const g of porPrioridade) prioridadeMap[g.prioridade] = g._count
+
+  const tempoMedioConclusaoDias = demandasConcluidas.length > 0
+    ? Math.round(demandasConcluidas.reduce((acc, d) => acc + (d.updatedAt.getTime() - d.createdAt.getTime()), 0) / demandasConcluidas.length / 86400000 * 10) / 10
+    : null
 
   res.json({
     porStatus: statusMap,
-    totalDemandas: porStatus.reduce((acc, g) => acc + g._count, 0),
+    porPrioridade: prioridadeMap,
+    totalDemandas,
+    totalAtivas,
     totalAtrasadas,
+    percentualAtrasadas: totalAtivas > 0 ? Math.round((totalAtrasadas / totalAtivas) * 1000) / 10 : 0,
     minhasAtividadesPendentes,
     aguardandoMinhaAprovacao,
+    concluidasEsteMes,
+    concluidasMesAnterior,
+    tempoMedioConclusaoDias,
+    taxaDevolucao: totalAtividadesAtivas > 0 ? Math.round((atividadesComDevolucao / totalAtividadesAtivas) * 1000) / 10 : 0,
   })
 })
 

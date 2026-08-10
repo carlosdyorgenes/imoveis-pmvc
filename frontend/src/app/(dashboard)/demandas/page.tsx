@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Demanda, StatusDemanda, Prioridade } from '@/types'
 import Link from 'next/link'
-import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox, List, Columns3, Trash2, ArrowUp, Minus, ArrowDown } from 'lucide-react'
+import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox, List, Columns3, Trash2, ArrowUp, Minus, ArrowDown, Timer, RotateCcw, TrendingUp, TrendingDown, CheckCircle2, Gauge } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -144,10 +144,17 @@ export default function DemandasPage() {
     queryKey: ['demandas-painel'],
     queryFn: () => api.get('/api/demandas/painel/resumo').then(r => r.data as {
       totalDemandas: number
+      totalAtivas: number
       totalAtrasadas: number
+      percentualAtrasadas: number
       minhasAtividadesPendentes: number
       aguardandoMinhaAprovacao: number
       porStatus: Record<string, number>
+      porPrioridade: Record<Prioridade, number>
+      concluidasEsteMes: number
+      concluidasMesAnterior: number
+      tempoMedioConclusaoDias: number | null
+      taxaDevolucao: number
     }),
     refetchInterval: 60_000,
   })
@@ -191,6 +198,79 @@ export default function DemandasPage() {
           <div className="card py-3">
             <p className="text-xs text-amber-600 flex items-center gap-1"><ClipboardCheck className="w-3.5 h-3.5" /> Aguardando minha aprovação</p>
             <p className="text-2xl font-bold text-amber-600 mt-1">{painel.aguardandoMinhaAprovacao}</p>
+          </div>
+        </div>
+      )}
+
+      {painel && (
+        <div className="mb-6">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Indicadores estratégicos</h2>
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+            <div className="card py-3">
+              <p className="text-xs text-gray-500 flex items-center gap-1"><Gauge className="w-3.5 h-3.5" /> Taxa de atraso</p>
+              <p className={`text-2xl font-bold mt-1 ${painel.percentualAtrasadas > 20 ? 'text-red-600' : painel.percentualAtrasadas > 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                {painel.percentualAtrasadas}%
+              </p>
+              <p className="text-[11px] text-gray-400 mt-0.5">{painel.totalAtrasadas} de {painel.totalAtivas} em curso</p>
+            </div>
+
+            <div className="card py-3">
+              <p className="text-xs text-gray-500 flex items-center gap-1"><Timer className="w-3.5 h-3.5" /> Tempo médio de conclusão</p>
+              <p className="text-2xl font-bold text-gray-800 mt-1">
+                {painel.tempoMedioConclusaoDias !== null ? `${painel.tempoMedioConclusaoDias}d` : '—'}
+              </p>
+              <p className="text-[11px] text-gray-400 mt-0.5">do cadastro à conclusão</p>
+            </div>
+
+            <div className="card py-3">
+              <p className="text-xs text-gray-500 flex items-center gap-1"><RotateCcw className="w-3.5 h-3.5" /> Taxa de devolução</p>
+              <p className={`text-2xl font-bold mt-1 ${painel.taxaDevolucao > 25 ? 'text-red-600' : painel.taxaDevolucao > 10 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                {painel.taxaDevolucao}%
+              </p>
+              <p className="text-[11px] text-gray-400 mt-0.5">atividades já devolvidas</p>
+            </div>
+
+            <div className="card py-3">
+              <p className="text-xs text-gray-500 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Concluídas este mês</p>
+              <p className="text-2xl font-bold text-gray-800 mt-1 flex items-center gap-1.5">
+                {painel.concluidasEsteMes}
+                {painel.concluidasMesAnterior > 0 && (
+                  painel.concluidasEsteMes >= painel.concluidasMesAnterior ? (
+                    <span className="text-xs text-emerald-600 flex items-center font-medium"><TrendingUp className="w-3.5 h-3.5" /></span>
+                  ) : (
+                    <span className="text-xs text-red-500 flex items-center font-medium"><TrendingDown className="w-3.5 h-3.5" /></span>
+                  )
+                )}
+              </p>
+              <p className="text-[11px] text-gray-400 mt-0.5">mês anterior: {painel.concluidasMesAnterior}</p>
+            </div>
+
+            <button onClick={() => { setSomenteAtrasadas(false); setFiltroStatus('PARCIALMENTE_CONCLUIDA') }} className="card py-3 text-left hover:shadow-md transition-shadow">
+              <p className="text-xs text-indigo-600 flex items-center gap-1"><ClipboardCheck className="w-3.5 h-3.5" /> Parcialmente concluídas</p>
+              <p className="text-2xl font-bold text-indigo-600 mt-1">{painel.porStatus.PARCIALMENTE_CONCLUIDA || 0}</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">aguardando as demais etapas</p>
+            </button>
+
+            <div className="card py-3">
+              <p className="text-xs text-gray-500 mb-1.5">Prioridade (demandas em curso)</p>
+              <div className="flex items-end gap-1.5 h-8">
+                {(['ALTA', 'MEDIA', 'BAIXA'] as Prioridade[]).map(p => {
+                  const max = Math.max(1, painel.porPrioridade.ALTA, painel.porPrioridade.MEDIA, painel.porPrioridade.BAIXA)
+                  const alturaPercent = (painel.porPrioridade[p] / max) * 100
+                  return (
+                    <div key={p} className="flex-1 flex flex-col items-center justify-end h-full" title={`${PRIORIDADE_LABEL[p]}: ${painel.porPrioridade[p]}`}>
+                      <span className="text-[10px] font-semibold text-gray-600">{painel.porPrioridade[p]}</span>
+                      <div className={`w-full rounded-t ${p === 'ALTA' ? 'bg-red-400' : p === 'MEDIA' ? 'bg-amber-400' : 'bg-gray-300'}`} style={{ height: `${Math.max(alturaPercent, 8)}%` }} />
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="flex gap-1.5 mt-1">
+                {(['ALTA', 'MEDIA', 'BAIXA'] as Prioridade[]).map(p => (
+                  <span key={p} className="flex-1 text-center text-[9px] text-gray-400">{PRIORIDADE_LABEL[p]}</span>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}

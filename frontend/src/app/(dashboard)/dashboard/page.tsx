@@ -1,52 +1,207 @@
 'use client'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { Building2, ClipboardList, KanbanSquare, MapPin, TrendingUp, Home } from 'lucide-react'
+import {
+  Building2, ClipboardList, MapPin, Home, FileStack, AlertTriangle, Gauge, Timer,
+  RotateCcw, CheckCircle2, TrendingUp, TrendingDown, Inbox, ClipboardCheck, ArrowUp, Minus, ArrowDown,
+} from 'lucide-react'
 import Link from 'next/link'
-import { Imovel, Ocorrencia } from '@/types'
+import { Imovel, Ocorrencia, Demanda, Prioridade } from '@/types'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+
+const PRIORIDADE_LABEL: Record<Prioridade, string> = { ALTA: 'Alta', MEDIA: 'Média', BAIXA: 'Baixa' }
+const PRIORIDADE_ICONE: Record<Prioridade, typeof ArrowUp> = { ALTA: ArrowUp, MEDIA: Minus, BAIXA: ArrowDown }
+const PRIORIDADE_COLOR: Record<Prioridade, string> = {
+  ALTA: 'bg-red-100 text-red-700', MEDIA: 'bg-amber-100 text-amber-700', BAIXA: 'bg-gray-100 text-gray-600',
+}
+
+interface PainelDemandas {
+  totalDemandas: number
+  totalAtivas: number
+  totalAtrasadas: number
+  percentualAtrasadas: number
+  minhasAtividadesPendentes: number
+  aguardandoMinhaAprovacao: number
+  porStatus: Record<string, number>
+  porPrioridade: Record<Prioridade, number>
+  concluidasEsteMes: number
+  concluidasMesAnterior: number
+  tempoMedioConclusaoDias: number | null
+  taxaDevolucao: number
+}
+
+function KpiCard({ icon: Icon, label, value, sub, tone = 'text-gray-800', href }: {
+  icon: typeof Gauge; label: string; value: React.ReactNode; sub?: string; tone?: string; href?: string
+}) {
+  const content = (
+    <>
+      <p className="text-xs text-gray-500 flex items-center gap-1.5"><Icon className="w-3.5 h-3.5" /> {label}</p>
+      <p className={`text-2xl font-bold mt-1 ${tone}`}>{value}</p>
+      {sub && <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>}
+    </>
+  )
+  return href ? (
+    <Link href={href} className="card py-3 hover:shadow-md transition-shadow block">{content}</Link>
+  ) : (
+    <div className="card py-3">{content}</div>
+  )
+}
 
 export default function DashboardPage() {
   const { data: imoveis = [] } = useQuery<Imovel[]>({ queryKey: ['imoveis'], queryFn: () => api.get('/api/imoveis').then(r => r.data) })
   const { data: ocorrencias = [] } = useQuery<Ocorrencia[]>({ queryKey: ['ocorrencias'], queryFn: () => api.get('/api/ocorrencias').then(r => r.data) })
+  const { data: painel } = useQuery<PainelDemandas>({
+    queryKey: ['demandas-painel'],
+    queryFn: () => api.get('/api/demandas/painel/resumo').then(r => r.data),
+    refetchInterval: 60_000,
+  })
+  const { data: demandasAtrasadas = [] } = useQuery<Demanda[]>({
+    queryKey: ['demandas', 'atrasadas-resumo'],
+    queryFn: () => api.get('/api/demandas', { params: { atrasadas: 'true' } }).then(r => r.data),
+  })
 
   const proprios = imoveis.filter(i => i.tipo === 'PROPRIO').length
   const locados = imoveis.filter(i => i.tipo === 'LOCADO').length
-  const urbanos = imoveis.filter(i => i.zona === 'URBANO').length
-  const rurais = imoveis.filter(i => i.zona === 'RURAL').length
   const comCoordenadas = imoveis.filter(i => i.latitude && i.longitude).length
 
-  const cards = [
+  const imoveisCards = [
     { label: 'Total de Imóveis', value: imoveis.length, icon: Building2, color: 'bg-blue-500', href: '/imoveis' },
     { label: 'Imóveis Próprios', value: proprios, icon: Home, color: 'bg-emerald-500', href: '/imoveis?tipo=PROPRIO' },
     { label: 'Imóveis Locados', value: locados, icon: Building2, color: 'bg-amber-500', href: '/imoveis?tipo=LOCADO' },
-    { label: 'Ocorrências', value: ocorrencias.length, icon: ClipboardList, color: 'bg-purple-500', href: '/ocorrencias' },
-    { label: 'Zona Urbana', value: urbanos, icon: TrendingUp, color: 'bg-indigo-500', href: '/imoveis?zona=URBANO' },
-    { label: 'Zona Rural', value: rurais, icon: MapPin, color: 'bg-lime-500', href: '/imoveis?zona=RURAL' },
     { label: 'Geo-referenciados', value: comCoordenadas, icon: MapPin, color: 'bg-rose-500', href: '/mapa' },
-    { label: 'Sem Coordenadas', value: imoveis.length - comCoordenadas, icon: MapPin, color: 'bg-gray-400', href: '/imoveis' },
   ]
+
+  const maxPrioridade = painel ? Math.max(1, painel.porPrioridade.ALTA, painel.porPrioridade.MEDIA, painel.porPrioridade.BAIXA) : 1
 
   return (
     <div>
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 mt-1">Visão geral do controle de imóveis públicos</p>
+        <p className="text-gray-500 mt-1">Visão geral estratégica — imóveis públicos e processos GEP</p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        {cards.map(({ label, value, icon: Icon, color, href }) => (
-          <Link key={label} href={href} className="card hover:shadow-md transition-shadow group">
-            <div className="flex items-center justify-between mb-3">
-              <div className={`w-10 h-10 ${color} rounded-xl flex items-center justify-center`}>
-                <Icon className="w-5 h-5 text-white" />
+      {/* ===== Demandas (Processos GEP) ===== */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide flex items-center gap-2">
+            <FileStack className="w-4 h-4 text-primary-600" /> Demandas — Processos GEP
+          </h2>
+          <Link href="/demandas" className="text-xs text-primary-600 hover:underline">Ver todas →</Link>
+        </div>
+
+        {painel && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+            <KpiCard icon={FileStack} label="Demandas em curso" value={painel.totalAtivas} sub={`${painel.totalDemandas} no total`} href="/demandas" />
+            <KpiCard
+              icon={Gauge} label="Taxa de atraso" value={`${painel.percentualAtrasadas}%`}
+              sub={`${painel.totalAtrasadas} demanda(s) atrasada(s)`}
+              tone={painel.percentualAtrasadas > 20 ? 'text-red-600' : painel.percentualAtrasadas > 5 ? 'text-amber-600' : 'text-emerald-600'}
+              href="/demandas"
+            />
+            <KpiCard
+              icon={Timer} label="Tempo médio de conclusão"
+              value={painel.tempoMedioConclusaoDias !== null ? `${painel.tempoMedioConclusaoDias}d` : '—'}
+              sub="do cadastro à conclusão"
+            />
+            <KpiCard
+              icon={RotateCcw} label="Taxa de devolução" value={`${painel.taxaDevolucao}%`}
+              sub="atividades já devolvidas"
+              tone={painel.taxaDevolucao > 25 ? 'text-red-600' : painel.taxaDevolucao > 10 ? 'text-amber-600' : 'text-emerald-600'}
+            />
+          </div>
+        )}
+
+        {painel && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <KpiCard
+              icon={CheckCircle2} label="Concluídas este mês"
+              value={(
+                <span className="flex items-center gap-1.5">
+                  {painel.concluidasEsteMes}
+                  {painel.concluidasMesAnterior > 0 && (
+                    painel.concluidasEsteMes >= painel.concluidasMesAnterior
+                      ? <TrendingUp className="w-4 h-4 text-emerald-600" />
+                      : <TrendingDown className="w-4 h-4 text-red-500" />
+                  )}
+                </span>
+              )}
+              sub={`mês anterior: ${painel.concluidasMesAnterior}`}
+            />
+            <KpiCard icon={Inbox} label="Minhas atividades pendentes" value={painel.minhasAtividadesPendentes} tone="text-blue-600" href="/minha-fila" />
+            <KpiCard icon={ClipboardCheck} label="Aguardando minha aprovação" value={painel.aguardandoMinhaAprovacao} tone="text-amber-600" />
+            <div className="card py-3">
+              <p className="text-xs text-gray-500 mb-1.5">Prioridade (demandas em curso)</p>
+              <div className="flex items-end gap-1.5 h-8">
+                {(['ALTA', 'MEDIA', 'BAIXA'] as Prioridade[]).map(p => {
+                  const Icone = PRIORIDADE_ICONE[p]
+                  const altura = (painel.porPrioridade[p] / maxPrioridade) * 100
+                  return (
+                    <div key={p} className="flex-1 flex flex-col items-center justify-end h-full" title={`${PRIORIDADE_LABEL[p]}: ${painel.porPrioridade[p]}`}>
+                      <Icone className="w-2.5 h-2.5 text-gray-400 mb-0.5" />
+                      <span className="text-[10px] font-semibold text-gray-600">{painel.porPrioridade[p]}</span>
+                      <div className={`w-full rounded-t ${p === 'ALTA' ? 'bg-red-400' : p === 'MEDIA' ? 'bg-amber-400' : 'bg-gray-300'}`} style={{ height: `${Math.max(altura, 8)}%` }} />
+                    </div>
+                  )
+                })}
               </div>
             </div>
-            <p className="text-2xl font-bold text-gray-900">{value}</p>
-            <p className="text-sm text-gray-500 mt-0.5">{label}</p>
-          </Link>
-        ))}
+          </div>
+        )}
+
+        <div className="card">
+          <h3 className="font-semibold text-sm text-gray-800 mb-3 flex items-center gap-1.5">
+            <AlertTriangle className="w-4 h-4 text-red-500" /> Demandas atrasadas — atenção prioritária
+          </h3>
+          {demandasAtrasadas.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">Nenhuma demanda atrasada no momento 🎉</p>
+          ) : (
+            <div className="space-y-2">
+              {demandasAtrasadas.slice(0, 6).map(d => {
+                const Icone = PRIORIDADE_ICONE[d.prioridade]
+                const diasAtraso = d.prazo ? Math.floor((Date.now() - new Date(d.prazo).getTime()) / 86400000) : 0
+                return (
+                  <Link key={d.id} href={`/demandas/${d.id}`} className="flex items-center gap-3 text-sm hover:bg-gray-50 -mx-2 px-2 py-1.5 rounded-lg transition-colors">
+                    <span className="font-mono text-xs font-semibold text-primary-700 flex-shrink-0">{d.gepNumero}/{d.gepAno}</span>
+                    <span className="flex-1 min-w-0 truncate text-gray-700">{d.assunto}</span>
+                    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${PRIORIDADE_COLOR[d.prioridade]}`}>
+                      <Icone className="w-2.5 h-2.5" /> {PRIORIDADE_LABEL[d.prioridade]}
+                    </span>
+                    <span className="text-[11px] text-red-600 font-medium flex-shrink-0">{diasAtraso}d atraso</span>
+                  </Link>
+                )
+              })}
+              {demandasAtrasadas.length > 6 && (
+                <Link href="/demandas" className="block text-center text-xs text-primary-600 hover:underline pt-1">
+                  + {demandasAtrasadas.length - 6} outra(s) — ver todas
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ===== Imóveis Públicos ===== */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-blue-600" /> Imóveis Públicos
+          </h2>
+          <Link href="/imoveis" className="text-xs text-primary-600 hover:underline">Ver todos →</Link>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {imoveisCards.map(({ label, value, icon: Icon, color, href }) => (
+            <Link key={label} href={href} className="card hover:shadow-md transition-shadow group py-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className={`w-9 h-9 ${color} rounded-xl flex items-center justify-center`}>
+                  <Icon className="w-4 h-4 text-white" />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-gray-900">{value}</p>
+              <p className="text-sm text-gray-500 mt-0.5">{label}</p>
+            </Link>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
