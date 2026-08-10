@@ -296,7 +296,7 @@ demandasRouter.get('/', async (req: AuthRequest, res) => {
     where,
     include: {
       solicitante: { select: { id: true, name: true } },
-      atividades: { select: { id: true, status: true } },
+      atividades: { select: { id: true, status: true, responsavelId: true, equipe: { select: { id: true, nome: true } } } },
     },
     orderBy: { createdAt: 'desc' },
   })

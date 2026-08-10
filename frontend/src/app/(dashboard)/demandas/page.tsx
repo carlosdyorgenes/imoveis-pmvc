@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { Demanda, StatusDemanda, Prioridade } from '@/types'
+import { Demanda, StatusDemanda, Prioridade, Equipe } from '@/types'
 import Link from 'next/link'
 import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox, List, Columns3, Trash2, ArrowUp, Minus, ArrowDown, Timer, RotateCcw, TrendingUp, TrendingDown, CheckCircle2, Gauge } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -59,9 +59,27 @@ function BadgePrioridade({ prioridade }: { prioridade: Prioridade }) {
   )
 }
 
+// Status "real" da demanda (usado pelo administrador) considera todos os setores. Mas um
+// setor cuja atividade já foi aprovada, sem nenhuma pendência nova atribuída a ele, deve ver
+// a demanda como Concluída do ponto de vista dele — mesmo que ela ainda esteja em andamento
+// em outro setor (ex.: uma nova atividade foi criada para o Jurídico depois que a Engenharia
+// já tinha concluído a parte dela). Usa o mesmo critério de "envolvido" da visibilidade
+// individual: responsável direto, ou fallback por equipe só quando não há responsável definido.
+function statusPercebido(d: Demanda, isMaster: boolean, userId: string | undefined, equipes: Equipe[]): StatusDemanda {
+  if (isMaster || !userId) return d.status
+  if (['CONCLUIDA', 'CANCELADA'].includes(d.status)) return d.status
+  const minhasEquipeIds = equipes.filter(e => e.membros.some(m => m.user.id === userId)).map(e => e.id)
+  const minhasAtividades = (d.atividades || []).filter((a: any) =>
+    a.responsavelId === userId || (!a.responsavelId && a.equipe && minhasEquipeIds.includes(a.equipe.id))
+  )
+  if (minhasAtividades.length === 0) return d.status
+  const meuSetorConcluido = minhasAtividades.every((a: any) => ['APROVADA', 'CANCELADA'].includes(a.status))
+  return meuSetorConcluido ? 'CONCLUIDA' : d.status
+}
+
 export default function DemandasPage() {
   const qc = useQueryClient()
-  const { isMaster } = useAuth()
+  const { isMaster, user } = useAuth()
   const [gepBusca, setGepBusca] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [gepNumero, setGepNumero] = useState('')
@@ -139,6 +157,11 @@ export default function DemandasPage() {
       deleteMutation.mutate(id)
     }
   }
+
+  const { data: equipes = [] } = useQuery<Equipe[]>({
+    queryKey: ['equipes'],
+    queryFn: () => api.get('/api/equipes').then(r => r.data),
+  })
 
   const { data: painel } = useQuery({
     queryKey: ['demandas-painel'],
@@ -317,7 +340,7 @@ export default function DemandasPage() {
       {visualizacao === 'kanban' ? (
         <div className="flex gap-3 overflow-x-auto pb-2">
           {(Object.keys(STATUS_LABEL) as StatusDemanda[]).map(status => {
-            const itens = demandas.filter(d => d.status === status)
+            const itens = demandas.filter(d => statusPercebido(d, isMaster, user?.id, equipes) === status)
             return (
               <div key={status} className="flex-shrink-0 w-64 bg-gray-50 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-2">
@@ -390,7 +413,9 @@ export default function DemandasPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {demandas.map(d => (
+                {demandas.map(d => {
+                  const statusExibido = statusPercebido(d, isMaster, user?.id, equipes)
+                  return (
                   <tr key={d.id} className="hover:bg-gray-50">
                     <td className="px-3 py-2 align-top">
                       <Link href={`/demandas/${d.id}`} className="font-mono text-xs font-semibold text-primary-700 hover:underline">
@@ -403,9 +428,12 @@ export default function DemandasPage() {
                     <td className="px-3 py-2 text-gray-500 text-xs break-words align-top">{d.interessado || '—'}</td>
                     <td className="px-3 py-2 align-top"><BadgePrioridade prioridade={d.prioridade} /></td>
                     <td className="px-3 py-2 align-top">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[d.status]}`}>
-                        {STATUS_LABEL[d.status]}
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[statusExibido]}`}>
+                        {STATUS_LABEL[statusExibido]}
                       </span>
+                      {statusExibido !== d.status && (
+                        <span className="block mt-1 text-[10px] text-gray-400">concluída no seu setor</span>
+                      )}
                       {d.prazo && new Date(d.prazo) < new Date() && !['CONCLUIDA', 'CANCELADA'].includes(d.status) && (
                         <span className="block mt-1 text-[10px] text-red-600 flex items-center gap-1">
                           <AlertTriangle className="w-2.5 h-2.5" /> Atrasada
@@ -428,7 +456,8 @@ export default function DemandasPage() {
                       </td>
                     )}
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { Demanda, Atividade, StatusAtividade, User, Equipe, Prioridade } from '@/types'
+import { Demanda, Atividade, StatusAtividade, StatusDemanda, User, Equipe, Prioridade } from '@/types'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check, StickyNote } from 'lucide-react'
@@ -40,6 +40,42 @@ const PRIORIDADE_COLOR: Record<Prioridade, string> = {
   ALTA: 'bg-red-100 text-red-700', MEDIA: 'bg-amber-100 text-amber-700', BAIXA: 'bg-gray-100 text-gray-600',
 }
 const PRIORIDADE_ICONE: Record<Prioridade, typeof ArrowUp> = { ALTA: ArrowUp, MEDIA: Minus, BAIXA: ArrowDown }
+
+const STATUS_DEMANDA_LABEL: Record<StatusDemanda, string> = {
+  ABERTA: 'Aberta',
+  EM_ANDAMENTO: 'Em andamento',
+  PARCIALMENTE_CONCLUIDA: 'Parcialmente concluída',
+  AGUARDANDO_TERCEIRO: 'Aguardando terceiro',
+  DEVOLVIDA: 'Devolvida',
+  CONCLUIDA: 'Concluída',
+  CANCELADA: 'Cancelada',
+}
+
+const STATUS_DEMANDA_COLOR: Record<StatusDemanda, string> = {
+  ABERTA: 'bg-gray-100 text-gray-600',
+  EM_ANDAMENTO: 'bg-blue-100 text-blue-700',
+  PARCIALMENTE_CONCLUIDA: 'bg-indigo-100 text-indigo-700',
+  AGUARDANDO_TERCEIRO: 'bg-amber-100 text-amber-700',
+  DEVOLVIDA: 'bg-orange-100 text-orange-700',
+  CONCLUIDA: 'bg-green-100 text-green-700',
+  CANCELADA: 'bg-red-100 text-red-700',
+}
+
+// Espelha o mesmo critério de "envolvido" usado na visibilidade individual: responsável
+// direto, ou fallback por equipe só quando a atividade não tem responsável definido. Um setor
+// cuja atividade já foi aprovada, sem nova pendência atribuída a ele, vê a demanda como
+// Concluída mesmo que ela siga em andamento em outro setor.
+function statusPercebido(d: Demanda, isMaster: boolean, userId: string | undefined, equipes: Equipe[]): StatusDemanda {
+  if (isMaster || !userId) return d.status
+  if (['CONCLUIDA', 'CANCELADA'].includes(d.status)) return d.status
+  const minhasEquipeIds = equipes.filter(e => e.membros.some(m => m.user.id === userId)).map(e => e.id)
+  const minhasAtividades = d.atividades.filter(a =>
+    a.responsavel?.id === userId || (!a.responsavel && a.equipe && minhasEquipeIds.includes(a.equipe.id))
+  )
+  if (minhasAtividades.length === 0) return d.status
+  const meuSetorConcluido = minhasAtividades.every(a => ['APROVADA', 'CANCELADA'].includes(a.status))
+  return meuSetorConcluido ? 'CONCLUIDA' : d.status
+}
 
 export default function DemandaDetailPage({ params }: { params: { id: string } }) {
   const { id } = params
@@ -282,6 +318,8 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   // iniciada ao menos uma vez (dataInicio preenchida) — antes disso, tudo fica bloqueado.
   const podeEditarCampos = (a: Atividade) => podeGerenciarChecklist(a) && !!a.dataInicio
 
+  const statusExibido = statusPercebido(demanda, isMaster, user?.id, equipes)
+
   return (
     <div>
       <div className="flex items-center gap-4 mb-6">
@@ -296,6 +334,9 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 <Icone className="w-3 h-3" /> {PRIORIDADE_LABEL[demanda.prioridade]}
               </span>
             )})()}
+            <span className={`text-xs px-2 py-0.5 rounded-full font-sans font-medium ${STATUS_DEMANDA_COLOR[statusExibido]}`}>
+              {STATUS_DEMANDA_LABEL[statusExibido]}
+            </span>
             {demanda.prazo && new Date(demanda.prazo) < new Date() && !['CONCLUIDA', 'CANCELADA'].includes(demanda.status) && (
               <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-sans font-medium flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" /> Atrasada
@@ -305,6 +346,9 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
           <p className="text-gray-500 text-sm">
             {demanda.assunto}{demanda.interessado ? ` — ${demanda.interessado}` : ''}
             {demanda.prazo && <span className="ml-2 text-xs text-gray-400">Prazo: {format(new Date(demanda.prazo), 'dd/MM/yy', { locale: ptBR })}</span>}
+            {statusExibido !== demanda.status && (
+              <span className="ml-2 text-xs text-gray-400">(concluída no seu setor — ainda em andamento em outro)</span>
+            )}
           </p>
         </div>
         {isMaster && (
