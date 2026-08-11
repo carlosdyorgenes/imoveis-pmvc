@@ -11,7 +11,6 @@ perfisRouter.use(authenticate)
 // inválidas/inexistentes que nunca liberariam nada (erro silencioso de digitação).
 export const PERMISSOES_DISPONIVEIS = [
   { chave: 'equipes.gerenciar', descricao: 'Criar/editar equipes e gerenciar seus membros' },
-  { chave: 'tipos_demanda.gerenciar', descricao: 'Criar/editar tipos de demanda e suas etapas-modelo' },
 ] as const
 
 perfisRouter.get('/permissoes-disponiveis', (req, res) => {
