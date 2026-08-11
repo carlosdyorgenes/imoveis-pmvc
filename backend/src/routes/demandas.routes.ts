@@ -909,17 +909,25 @@ demandasRouter.delete('/documentos/:id', async (req: AuthRequest, res) => {
 })
 
 // ===== Pendências externas =====
+// Sempre vinculadas a uma atividade específica — cada atividade pode ter suas próprias
+// pendências externas (protocolos, órgãos, prazos diferentes), em vez de uma lista única
+// e solta na demanda inteira.
 
-demandasRouter.post('/:demandaId/pendencias', async (req: AuthRequest, res) => {
+demandasRouter.post('/atividades/:atividadeId/pendencias', async (req: AuthRequest, res) => {
   const { orgao, descricao, protocolo, prazoEsperado } = req.body
   if (!orgao?.trim() || !descricao?.trim()) throw new AppError('Órgão e descrição são obrigatórios')
 
-  const demanda = await prisma.demanda.findUnique({ where: { id: req.params.demandaId } })
+  const atividade = await prisma.atividade.findUnique({ where: { id: req.params.atividadeId } })
+  if (!atividade) throw new AppError('Atividade não encontrada', 404)
+  await assertPodeGerenciarPendencia(req, atividade)
+
+  const demanda = await prisma.demanda.findUnique({ where: { id: atividade.demandaId } })
   if (!demanda) throw new AppError('Demanda não encontrada', 404)
 
   const pendencia = await prisma.pendenciaExterna.create({
     data: {
       demandaId: demanda.id,
+      atividadeId: atividade.id,
       orgao: orgao.trim(),
       descricao: descricao.trim(),
       protocolo,
@@ -931,25 +939,19 @@ demandasRouter.post('/:demandaId/pendencias', async (req: AuthRequest, res) => {
     await prisma.demanda.update({ where: { id: demanda.id }, data: { status: 'AGUARDANDO_TERCEIRO' } })
   }
 
-  await registrarHistorico(demanda.id, req.user!.id, 'PENDENCIA_EXTERNA', `Pendência externa registrada: aguardando ${orgao} — ${descricao}`)
+  await registrarHistorico(demanda.id, req.user!.id, 'PENDENCIA_EXTERNA', `Pendência externa registrada na atividade "${atividade.titulo}": aguardando ${orgao} — ${descricao}`, atividade.id)
   res.status(201).json(pendencia)
 })
 
-// Pendências externas são gerenciáveis por qualquer usuário com acesso à demanda (mesmo
-// critério do isolamento entre áreas: MASTER, quem abriu, ou responsável de alguma atividade
-// dela) — não é uma ação exclusiva de quem abriu o processo.
-async function assertPodeGerenciarPendencia(req: AuthRequest, demandaId: string) {
+// Pendências externas são gerenciáveis por quem tem acesso à atividade a que pertencem (mesmo
+// critério do isolamento individual: MASTER, quem solicitou a atividade, ou o responsável
+// direto/equipe dela) — não é uma ação livre de qualquer um com acesso à demanda.
+async function assertPodeGerenciarPendencia(req: AuthRequest, atividade: { solicitanteId: string; responsavelId: string | null; equipeId: string | null }) {
   if (req.user!.role === 'MASTER') return
-  const demanda = await prisma.demanda.findUnique({
-    where: { id: demandaId },
-    select: { solicitanteId: true, atividades: { select: { responsavelId: true, equipeId: true } } },
-  })
-  if (!demanda) throw new AppError('Demanda não encontrada', 404)
-  if (demanda.solicitanteId === req.user!.id) return
+  if (atividade.solicitanteId === req.user!.id) return
 
   const equipeIds = await getEquipeIdsDoUsuario(req.user!.id)
-  const temAcesso = demanda.atividades.some(a => isResponsavelOuEquipeDaAtividade(a, req.user!.id, equipeIds))
-  if (!temAcesso) {
+  if (!isResponsavelOuEquipeDaAtividade(atividade, req.user!.id, equipeIds)) {
     throw new AppError('Você não possui permissão para acessar este conteúdo.', 403)
   }
 }
@@ -970,9 +972,15 @@ async function reavaliarAguardandoTerceiro(demandaId: string, userId: string) {
 
 demandasRouter.put('/pendencias/:id', async (req: AuthRequest, res) => {
   const { status, resposta, orgao, descricao, protocolo, prazoEsperado } = req.body
-  const pendencia = await prisma.pendenciaExterna.findUnique({ where: { id: req.params.id } })
+  const pendencia = await prisma.pendenciaExterna.findUnique({ where: { id: req.params.id }, include: { atividade: true, demanda: { select: { solicitanteId: true } } } })
   if (!pendencia) throw new AppError('Pendência não encontrada', 404)
-  await assertPodeGerenciarPendencia(req, pendencia.demandaId)
+  // Pendência antiga sem atividade vinculada (dado legado, anterior a essa mudança) —
+  // fica restrita a Master/solicitante da demanda, já que não há mais um responsável de
+  // atividade específico pra checar.
+  if (pendencia.atividade) await assertPodeGerenciarPendencia(req, pendencia.atividade)
+  else if (req.user!.role !== 'MASTER' && pendencia.demanda.solicitanteId !== req.user!.id) {
+    throw new AppError('Você não possui permissão para acessar este conteúdo.', 403)
+  }
   if (orgao !== undefined && !orgao.trim()) throw new AppError('Órgão é obrigatório')
   if (descricao !== undefined && !descricao.trim()) throw new AppError('Descrição é obrigatória')
 
@@ -1000,9 +1008,12 @@ demandasRouter.put('/pendencias/:id', async (req: AuthRequest, res) => {
 })
 
 demandasRouter.delete('/pendencias/:id', async (req: AuthRequest, res) => {
-  const pendencia = await prisma.pendenciaExterna.findUnique({ where: { id: req.params.id } })
+  const pendencia = await prisma.pendenciaExterna.findUnique({ where: { id: req.params.id }, include: { atividade: true, demanda: { select: { solicitanteId: true } } } })
   if (!pendencia) throw new AppError('Pendência não encontrada', 404)
-  await assertPodeGerenciarPendencia(req, pendencia.demandaId)
+  if (pendencia.atividade) await assertPodeGerenciarPendencia(req, pendencia.atividade)
+  else if (req.user!.role !== 'MASTER' && pendencia.demanda.solicitanteId !== req.user!.id) {
+    throw new AppError('Você não possui permissão para acessar este conteúdo.', 403)
+  }
 
   await prisma.pendenciaExterna.delete({ where: { id: pendencia.id } })
   await registrarHistorico(pendencia.demandaId, req.user!.id, 'PENDENCIA_EXTERNA', `Pendência de ${pendencia.orgao} removida`)

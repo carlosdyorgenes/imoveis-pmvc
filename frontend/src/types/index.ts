@@ -189,6 +189,7 @@ export interface Equipe {
 export interface PendenciaExterna {
   id: string
   demandaId: string
+  atividadeId?: string | null
   orgao: string
   descricao: string
   dataSolicitacao: string

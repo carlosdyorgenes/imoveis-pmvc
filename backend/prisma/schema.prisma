@@ -200,9 +200,10 @@ model Atividade {
   responsavel    User?                    @relation("AtividadeResponsavel", fields: [responsavelId], references: [id])
   equipe         Equipe?                  @relation(fields: [equipeId], references: [id])
   solicitante    User                     @relation("AtividadeSolicitante", fields: [solicitanteId], references: [id])
-  passos         PassoAtividade[]
-  documentos     DocumentoAtividade[]
-  transferencias HistoricoTransferencia[]
+  passos             PassoAtividade[]
+  documentos         DocumentoAtividade[]
+  transferencias     HistoricoTransferencia[]
+  pendenciasExternas PendenciaExterna[]
 
   @@map("atividades")
 }
@@ -247,6 +248,9 @@ model DocumentoAtividade {
 model PendenciaExterna {
   id              String    @id @default(uuid())
   demandaId       String
+  // Pendência sempre nasce vinculada a uma atividade específica (nunca mais "solta" na
+  // demanda) — nullable só para não quebrar registros antigos criados antes dessa mudança.
+  atividadeId     String?
   orgao           String
   descricao       String
   dataSolicitacao DateTime  @default(now())
@@ -257,7 +261,8 @@ model PendenciaExterna {
   ultimaCobranca  DateTime?
   createdAt       DateTime  @default(now())
 
-  demanda Demanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  demanda   Demanda    @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  atividade Atividade? @relation(fields: [atividadeId], references: [id], onDelete: Cascade)
 
   @@map("pendencias_externas")
 }

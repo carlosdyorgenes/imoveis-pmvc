@@ -267,7 +267,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   }
 
   const createPendencia = useMutation({
-    mutationFn: () => api.post(`/api/demandas/${id}/pendencias`, { orgao: pOrgao, descricao: pDescricao, protocolo: pProtocolo }),
+    mutationFn: (atividadeId: string) => api.post(`/api/demandas/atividades/${atividadeId}/pendencias`, { orgao: pOrgao, descricao: pDescricao, protocolo: pProtocolo }),
     onSuccess: () => { invalidar(); setShowPendencia(false); setPOrgao(''); setPDescricao(''); setPProtocolo(''); toast.success('Pendência externa registrada') },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao registrar pendência'))
   })
@@ -473,110 +473,52 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
             )
           })}
 
-          {/* Pendências externas */}
-          <div className="flex items-center justify-between mt-6">
-            <h2 className="font-semibold text-gray-800 flex items-center gap-1.5">
-              <Building2 className="w-4 h-4 text-amber-600" /> Pendências Externas
-            </h2>
-            <button onClick={() => setShowPendencia(true)} className="btn-secondary text-xs">
-              <Plus className="w-3.5 h-3.5" /> Registrar
-            </button>
-          </div>
-
-          {showPendencia && (
-            <div className="card space-y-3">
-              <div>
-                <label className="label">Órgão / Pessoa</label>
-                <input className="input" placeholder="Ex: Seinfra, Patrimônio, Cartório..." value={pOrgao} onChange={e => setPOrgao(e.target.value)} autoFocus />
-              </div>
-              <div>
-                <label className="label">Descrição</label>
-                <textarea className="input min-h-16 resize-none" placeholder="O que foi solicitado..." value={pDescricao} onChange={e => setPDescricao(e.target.value)} />
-              </div>
-              <div>
-                <label className="label">Protocolo (opcional)</label>
-                <input className="input" value={pProtocolo} onChange={e => setPProtocolo(e.target.value)} />
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => setShowPendencia(false)} className="btn-secondary flex-1 justify-center text-xs">Cancelar</button>
-                <button
-                  onClick={() => pOrgao.trim() && pDescricao.trim() && createPendencia.mutate()}
-                  disabled={!pOrgao.trim() || !pDescricao.trim() || createPendencia.isPending}
-                  className="btn-primary flex-1 justify-center text-xs"
-                >
-                  Registrar
-                </button>
-              </div>
-            </div>
-          )}
-
-          {(demanda.pendenciasExternas || []).length === 0 && !showPendencia ? (
-            <p className="text-xs text-gray-400 text-center py-3">Nenhuma pendência externa registrada</p>
-          ) : (
-            <div className="space-y-2">
-              {(demanda.pendenciasExternas || []).map(p => {
-                const podeGerenciarPendencia = isMaster || demanda.solicitante.id === user?.id || demanda.atividades.some(isResponsavel)
-                if (pendenciaEditando === p.id) {
-                  return (
-                    <div key={p.id} className="card py-3 space-y-2">
-                      <input className="input text-sm" placeholder="Órgão / Pessoa" value={pOrgaoEdicao} onChange={e => setPOrgaoEdicao(e.target.value)} autoFocus />
-                      <textarea className="input text-sm min-h-16 resize-none" placeholder="Descrição" value={pDescricaoEdicao} onChange={e => setPDescricaoEdicao(e.target.value)} />
-                      <input className="input text-sm" placeholder="Protocolo (opcional)" value={pProtocoloEdicao} onChange={e => setPProtocoloEdicao(e.target.value)} />
-                      <div className="flex gap-2">
-                        <button onClick={() => setPendenciaEditando(null)} className="btn-secondary flex-1 justify-center text-xs">Cancelar</button>
-                        <button
-                          onClick={() => pOrgaoEdicao.trim() && pDescricaoEdicao.trim() && editarPendencia.mutate({ id: p.id, orgao: pOrgaoEdicao.trim(), descricao: pDescricaoEdicao.trim(), protocolo: pProtocoloEdicao })}
-                          disabled={!pOrgaoEdicao.trim() || !pDescricaoEdicao.trim() || editarPendencia.isPending}
-                          className="btn-primary flex-1 justify-center text-xs"
-                        >
-                          Salvar
-                        </button>
+          {(() => {
+            // Pendências antigas, registradas antes da mudança que passou a exigir uma
+            // atividade vinculada — mantidas visíveis aqui pra não sumir dado real, mas sem
+            // opção de criar novas assim (toda pendência nova nasce dentro de uma atividade).
+            const legado = (demanda.pendenciasExternas || []).filter(p => !p.atividadeId)
+            if (legado.length === 0) return null
+            return (
+              <div className="mt-6">
+                <h2 className="font-semibold text-gray-800 flex items-center gap-1.5 mb-2">
+                  <Building2 className="w-4 h-4 text-amber-600" /> Pendências externas (sem atividade vinculada)
+                </h2>
+                <div className="space-y-2">
+                  {legado.map(p => (
+                    <div key={p.id} className="card py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">{p.orgao}</p>
+                          <p className="text-xs text-gray-600 mt-0.5">{p.descricao}</p>
+                          {p.protocolo && <p className="text-xs text-gray-400 mt-0.5">Protocolo: {p.protocolo}</p>}
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${p.status === 'RESPONDIDA' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {p.status === 'RESPONDIDA' ? 'Respondida' : 'Aguardando'}
+                          </span>
+                          {(isMaster || demanda.solicitante.id === user?.id) && (
+                            <button
+                              onClick={() => confirm(`Excluir a pendência de "${p.orgao}"?`) && excluirPendencia.mutate(p.id)}
+                              className="text-gray-300 hover:text-red-500"
+                              title="Excluir pendência"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )
-                }
-                return (
-                <div key={p.id} className="card py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-gray-800">{p.orgao}</p>
-                      <p className="text-xs text-gray-600 mt-0.5">{p.descricao}</p>
-                      {p.protocolo && <p className="text-xs text-gray-400 mt-0.5">Protocolo: {p.protocolo}</p>}
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${p.status === 'RESPONDIDA' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                        {p.status === 'RESPONDIDA' ? 'Respondida' : 'Aguardando'}
-                      </span>
-                      {podeGerenciarPendencia && (
-                        <>
-                          <button
-                            onClick={() => { setPendenciaEditando(p.id); setPOrgaoEdicao(p.orgao); setPDescricaoEdicao(p.descricao); setPProtocoloEdicao(p.protocolo || '') }}
-                            className="text-gray-300 hover:text-primary-600"
-                            title="Editar pendência"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => confirm(`Excluir a pendência de "${p.orgao}"?`) && excluirPendencia.mutate(p.id)}
-                            className="text-gray-300 hover:text-red-500"
-                            title="Excluir pendência"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </>
+                      {p.status !== 'RESPONDIDA' && (
+                        <button onClick={() => resolverPendencia.mutate(p.id)} className="text-xs text-primary-600 hover:underline mt-2">
+                          Marcar como respondida
+                        </button>
                       )}
                     </div>
-                  </div>
-                  {p.status !== 'RESPONDIDA' && (
-                    <button onClick={() => resolverPendencia.mutate(p.id)} className="text-xs text-primary-600 hover:underline mt-2">
-                      Marcar como respondida
-                    </button>
-                  )}
+                  ))}
                 </div>
-                )
-              })}
-            </div>
-          )}
+              </div>
+            )
+          })()}
         </div>
 
         <div className="space-y-4">
@@ -622,7 +564,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   {STATUS_ATIV_LABEL[atividadeModal.status]}
                 </span>
               </div>
-              <button onClick={() => { setAtividadeAberta(null); setShowDevolver(false) }} className="p-1.5 hover:bg-gray-100 rounded-lg flex-shrink-0">
+              <button onClick={() => { setAtividadeAberta(null); setShowDevolver(false); setShowPendencia(false); setPendenciaEditando(null) }} className="p-1.5 hover:bg-gray-100 rounded-lg flex-shrink-0">
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
@@ -832,6 +774,118 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
+                    <Building2 className="w-3.5 h-3.5" /> Pendências Externas
+                  </p>
+                  {podeGerenciarChecklist(atividadeModal) && (
+                    <button onClick={() => setShowPendencia(true)} className="btn-secondary text-xs">
+                      <Plus className="w-3.5 h-3.5" /> Registrar
+                    </button>
+                  )}
+                </div>
+
+                {showPendencia && (
+                  <div className="card space-y-3 mb-2">
+                    <div>
+                      <label className="label">Órgão / Pessoa</label>
+                      <input className="input" placeholder="Ex: Seinfra, Patrimônio, Cartório..." value={pOrgao} onChange={e => setPOrgao(e.target.value)} autoFocus />
+                    </div>
+                    <div>
+                      <label className="label">Descrição</label>
+                      <textarea className="input min-h-16 resize-none" placeholder="O que foi solicitado..." value={pDescricao} onChange={e => setPDescricao(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="label">Protocolo (opcional)</label>
+                      <input className="input" value={pProtocolo} onChange={e => setPProtocolo(e.target.value)} />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setShowPendencia(false)} className="btn-secondary flex-1 justify-center text-xs">Cancelar</button>
+                      <button
+                        onClick={() => pOrgao.trim() && pDescricao.trim() && createPendencia.mutate(atividadeModal.id)}
+                        disabled={!pOrgao.trim() || !pDescricao.trim() || createPendencia.isPending}
+                        className="btn-primary flex-1 justify-center text-xs"
+                      >
+                        Registrar
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {(() => {
+                  const pendenciasDaAtividade = (demanda.pendenciasExternas || []).filter(p => p.atividadeId === atividadeModal.id)
+                  if (pendenciasDaAtividade.length === 0 && !showPendencia) {
+                    return <p className="text-xs text-gray-400 text-center py-3">Nenhuma pendência externa registrada</p>
+                  }
+                  return (
+                    <div className="space-y-2">
+                      {pendenciasDaAtividade.map(p => {
+                        const podeGerenciarPendencia = podeGerenciarChecklist(atividadeModal)
+                        if (pendenciaEditando === p.id) {
+                          return (
+                            <div key={p.id} className="card py-3 space-y-2">
+                              <input className="input text-sm" placeholder="Órgão / Pessoa" value={pOrgaoEdicao} onChange={e => setPOrgaoEdicao(e.target.value)} autoFocus />
+                              <textarea className="input text-sm min-h-16 resize-none" placeholder="Descrição" value={pDescricaoEdicao} onChange={e => setPDescricaoEdicao(e.target.value)} />
+                              <input className="input text-sm" placeholder="Protocolo (opcional)" value={pProtocoloEdicao} onChange={e => setPProtocoloEdicao(e.target.value)} />
+                              <div className="flex gap-2">
+                                <button onClick={() => setPendenciaEditando(null)} className="btn-secondary flex-1 justify-center text-xs">Cancelar</button>
+                                <button
+                                  onClick={() => pOrgaoEdicao.trim() && pDescricaoEdicao.trim() && editarPendencia.mutate({ id: p.id, orgao: pOrgaoEdicao.trim(), descricao: pDescricaoEdicao.trim(), protocolo: pProtocoloEdicao })}
+                                  disabled={!pOrgaoEdicao.trim() || !pDescricaoEdicao.trim() || editarPendencia.isPending}
+                                  className="btn-primary flex-1 justify-center text-xs"
+                                >
+                                  Salvar
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        }
+                        return (
+                          <div key={p.id} className="card py-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-medium text-gray-800">{p.orgao}</p>
+                                <p className="text-xs text-gray-600 mt-0.5">{p.descricao}</p>
+                                {p.protocolo && <p className="text-xs text-gray-400 mt-0.5">Protocolo: {p.protocolo}</p>}
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${p.status === 'RESPONDIDA' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {p.status === 'RESPONDIDA' ? 'Respondida' : 'Aguardando'}
+                                </span>
+                                {podeGerenciarPendencia && (
+                                  <>
+                                    <button
+                                      onClick={() => { setPendenciaEditando(p.id); setPOrgaoEdicao(p.orgao); setPDescricaoEdicao(p.descricao); setPProtocoloEdicao(p.protocolo || '') }}
+                                      className="text-gray-300 hover:text-primary-600"
+                                      title="Editar pendência"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => confirm(`Excluir a pendência de "${p.orgao}"?`) && excluirPendencia.mutate(p.id)}
+                                      className="text-gray-300 hover:text-red-500"
+                                      title="Excluir pendência"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            {p.status !== 'RESPONDIDA' && (
+                              <button onClick={() => resolverPendencia.mutate(p.id)} className="text-xs text-primary-600 hover:underline mt-2">
+                                Marcar como respondida
+                              </button>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
               </div>
             </div>
 
