@@ -13,6 +13,7 @@ interface AtividadeFila {
   titulo: string
   instrucoes?: string
   status: StatusAtividade
+  prioridade: Prioridade
   prazo?: string | null
   createdAt: string
   equipe: { id: string; nome: string } | null
@@ -71,7 +72,7 @@ export default function MinhaFilaPage() {
     devolvidas: atividades.filter(a => a.status === 'DEVOLVIDA').length,
     concluidas: atividades.filter(a => ['CONCLUIDA', 'APROVADA'].includes(a.status)).length,
     atrasadas: atividades.filter(atrasada).length,
-    prioridadeAlta: atividades.filter(a => ATIVAS.includes(a.status) && a.demanda.prioridade === 'ALTA').length,
+    prioridadeAlta: atividades.filter(a => ATIVAS.includes(a.status) && a.prioridade === 'ALTA').length,
   }
 
   const porAba: Record<Aba, AtividadeFila[]> = {
@@ -140,7 +141,7 @@ export default function MinhaFilaPage() {
       ) : (
         <div className="space-y-2">
           {lista.map(a => {
-            const Icone = PRIORIDADE_ICONE[a.demanda.prioridade]
+            const Icone = PRIORIDADE_ICONE[a.prioridade]
             const atrasadaFlag = atrasada(a)
             const nova = a.status === 'ATRIBUIDA'
             return (
@@ -152,8 +153,8 @@ export default function MinhaFilaPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-xs font-semibold text-primary-700">{a.demanda.gepNumero}/{a.demanda.gepAno}</span>
-                    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${PRIORIDADE_COLOR[a.demanda.prioridade]}`}>
-                      <Icone className="w-3 h-3" /> {PRIORIDADE_LABEL[a.demanda.prioridade]}
+                    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${PRIORIDADE_COLOR[a.prioridade]}`}>
+                      <Icone className="w-3 h-3" /> {PRIORIDADE_LABEL[a.prioridade]}
                     </span>
                     {nova && (
                       <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-primary-100 text-primary-700">

@@ -89,6 +89,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [novasInstrucoes, setNovasInstrucoes] = useState('')
   const [novoAnexoObrigatorio, setNovoAnexoObrigatorio] = useState(false)
   const [novoPrazo, setNovoPrazo] = useState('')
+  const [novaPrioridade, setNovaPrioridade] = useState<Prioridade>('MEDIA')
 
   const [atividadeAberta, setAtividadeAberta] = useState<string | null>(null)
   const [novoPasso, setNovoPasso] = useState('')
@@ -151,11 +152,12 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
       equipeId: novaEquipe,
       anexoObrigatorio: novoAnexoObrigatorio,
       prazo: novoPrazo || null,
+      prioridade: novaPrioridade,
     }),
     onSuccess: (res) => {
       invalidar()
       toast.success(`Atividade atribuída a ${res.data.responsavel?.name || 'um membro da equipe'}`)
-      setShowNovaAtividade(false); setNovoTitulo(''); setNovaEquipe(''); setNovasInstrucoes(''); setNovoAnexoObrigatorio(false); setNovoPrazo('')
+      setShowNovaAtividade(false); setNovoTitulo(''); setNovaEquipe(''); setNovasInstrucoes(''); setNovoAnexoObrigatorio(false); setNovoPrazo(''); setNovaPrioridade('MEDIA')
     },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao criar atividade'))
   })
@@ -363,7 +365,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-800">Atividades</h2>
             {(isMaster || demanda.solicitante.id === user?.id) && (
-              <button onClick={() => { setNovoPrazo(demanda.prazo ? demanda.prazo.slice(0, 10) : ''); setShowNovaAtividade(true) }} className="btn-primary text-xs">
+              <button onClick={() => { setNovoPrazo(demanda.prazo ? demanda.prazo.slice(0, 10) : ''); setNovaPrioridade(demanda.prioridade); setShowNovaAtividade(true) }} className="btn-primary text-xs">
                 <Plus className="w-3.5 h-3.5" /> Nova Atividade
               </button>
             )}
@@ -389,13 +391,21 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 <label className="label">Instruções / solicitação específica</label>
                 <textarea className="input min-h-16 resize-none" placeholder="O que deve ser feito, qual resultado é esperado..." value={novasInstrucoes} onChange={e => setNovasInstrucoes(e.target.value)} />
               </div>
-              <div>
-                <label className="label">Prazo de execução (opcional)</label>
-                <input type="date" className="input" value={novoPrazo} onChange={e => setNovoPrazo(e.target.value)} />
-                <p className="text-xs text-gray-400 mt-1">
-                  Sugerido a partir do prazo da demanda, mas pode ser ajustado para esta atividade específica.
-                </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Prazo de execução (opcional)</label>
+                  <input type="date" className="input" value={novoPrazo} onChange={e => setNovoPrazo(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Prioridade da atividade</label>
+                  <select className="input" value={novaPrioridade} onChange={e => setNovaPrioridade(e.target.value as Prioridade)}>
+                    {Object.entries(PRIORIDADE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                </div>
               </div>
+              <p className="text-xs text-gray-400 -mt-1">
+                Sugeridos a partir da demanda, mas podem ser ajustados para esta atividade específica — uma demanda Média pode ter uma atividade pontualmente Alta.
+              </p>
               <label className="flex items-center gap-2 text-xs text-gray-600">
                 <input type="checkbox" checked={novoAnexoObrigatorio} onChange={e => setNovoAnexoObrigatorio(e.target.checked)} className="w-3.5 h-3.5" />
                 Anexo obrigatório para finalizar esta atividade
@@ -426,7 +436,14 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               <button key={a.id} onClick={() => setAtividadeAberta(a.id)} className="card w-full text-left hover:shadow-md transition-shadow">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="font-medium text-gray-800 text-sm truncate">{a.titulo}</p>
+                    <p className="font-medium text-gray-800 text-sm truncate flex items-center gap-1.5">
+                      {a.titulo}
+                      {(() => { const Icone = PRIORIDADE_ICONE[a.prioridade]; return (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex items-center gap-0.5 flex-shrink-0 ${PRIORIDADE_COLOR[a.prioridade]}`}>
+                          <Icone className="w-2.5 h-2.5" /> {PRIORIDADE_LABEL[a.prioridade]}
+                        </span>
+                      )})()}
+                    </p>
                     <p className="text-xs text-gray-500 mt-0.5">
                       {a.equipe ? `Equipe: ${a.equipe.nome} · ` : ''}Responsável: {a.responsavel?.name || 'não definido'}
                     </p>
@@ -590,7 +607,14 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[1024px] max-h-[85vh] flex flex-col">
             <div className="flex items-start justify-between p-5 border-b border-gray-100">
               <div>
-                <p className="font-semibold text-gray-800">{atividadeModal.titulo}</p>
+                <p className="font-semibold text-gray-800 flex items-center gap-1.5">
+                  {atividadeModal.titulo}
+                  {(() => { const Icone = PRIORIDADE_ICONE[atividadeModal.prioridade]; return (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex items-center gap-0.5 ${PRIORIDADE_COLOR[atividadeModal.prioridade]}`}>
+                      <Icone className="w-2.5 h-2.5" /> {PRIORIDADE_LABEL[atividadeModal.prioridade]}
+                    </span>
+                  )})()}
+                </p>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {atividadeModal.equipe ? `Equipe: ${atividadeModal.equipe.nome} · ` : ''}Responsável: {atividadeModal.responsavel?.name || 'não definido'} · Solicitante: {atividadeModal.solicitante.name}
                 </p>

@@ -151,6 +151,7 @@ export interface Atividade {
   titulo: string
   instrucoes?: string
   status: StatusAtividade
+  prioridade: Prioridade
   prazo?: string
   observacoes?: string
   motivoDevolucao?: string

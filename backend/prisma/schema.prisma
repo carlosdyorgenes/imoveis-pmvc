@@ -179,6 +179,9 @@ model Atividade {
   equipeId               String?
   solicitanteId          String
   status                 StatusAtividade @default(ATRIBUIDA)
+  // Prioridade da atividade em si — pode divergir da prioridade geral da demanda (ex.: demanda
+  // Média com uma atividade específica Alta). Rege a ordenação da fila do responsável.
+  prioridade             PrioridadeDemanda @default(MEDIA)
   prazo                  DateTime?
   observacoes            String?
   motivoDevolucao        String?

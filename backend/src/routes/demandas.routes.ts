@@ -213,6 +213,8 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
 // prioridade, a atribuição mais antiga vem primeiro (FIFO). Ordenado em memória porque a
 // ordem de prioridade não é alfabética (ALTA < BAIXA < MEDIA por ordem alfabética, mas a
 // regra de negócio é ALTA > MEDIA > BAIXA).
+// Usa a prioridade da própria atividade (não da demanda) — uma demanda Média pode ter uma
+// atividade específica marcada como Alta, e é essa que deve furar a fila do responsável.
 const PESO_PRIORIDADE: Record<string, number> = { ALTA: 0, MEDIA: 1, BAIXA: 2 }
 
 // Fila do usuário (Seção 13): por padrão só o que está ativo (pendente/em andamento);
@@ -248,8 +250,8 @@ demandasRouter.get('/atividades/minhas', async (req: AuthRequest, res) => {
     const ativaA = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'].includes(a.status)
     const ativaB = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'].includes(b.status)
     if (ativaA && ativaB) {
-      const pa = PESO_PRIORIDADE[a.demanda.prioridade] ?? 1
-      const pb = PESO_PRIORIDADE[b.demanda.prioridade] ?? 1
+      const pa = PESO_PRIORIDADE[a.prioridade] ?? 1
+      const pb = PESO_PRIORIDADE[b.prioridade] ?? 1
       if (pa !== pb) return pa - pb
       return a.createdAt.getTime() - b.createdAt.getTime()
     }
@@ -454,9 +456,10 @@ demandasRouter.put('/:id/status', async (req: AuthRequest, res) => {
 // ===== Atividades =====
 
 demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
-  const { titulo, instrucoes, equipeId, prazo, anexoObrigatorio } = req.body
+  const { titulo, instrucoes, equipeId, prazo, anexoObrigatorio, prioridade } = req.body
   if (!titulo?.trim()) throw new AppError('Título da atividade é obrigatório')
   if (!equipeId) throw new AppError('Informe a equipe responsável')
+  if (prioridade && !['ALTA', 'MEDIA', 'BAIXA'].includes(prioridade)) throw new AppError('Prioridade inválida')
 
   const demanda = await prisma.demanda.findUnique({ where: { id: req.params.demandaId } })
   if (!demanda) throw new AppError('Demanda não encontrada', 404)
@@ -490,6 +493,7 @@ demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
       solicitanteId: req.user!.id,
       prazo: prazo ? new Date(prazo) : null,
       anexoObrigatorio: !!anexoObrigatorio,
+      prioridade: prioridade || demanda.prioridade,
     },
     include: { responsavel: { select: { id: true, name: true } }, equipe: { select: { id: true, nome: true } }, passos: true, documentos: true },
   })
