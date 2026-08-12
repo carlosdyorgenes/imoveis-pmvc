@@ -365,6 +365,9 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
             {demanda.assunto}{demanda.interessado ? ` — ${demanda.interessado}` : ''}
             {demanda.prazo && <span className="ml-2 text-xs text-gray-400">Prazo: {format(new Date(demanda.prazo), 'dd/MM/yy', { locale: ptBR })}</span>}
           </p>
+          {demanda.descricao && (
+            <p className="text-gray-600 text-sm mt-1 whitespace-pre-wrap">{demanda.descricao}</p>
+          )}
         </div>
         {isMaster && (
           <button
