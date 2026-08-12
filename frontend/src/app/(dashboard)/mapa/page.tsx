@@ -163,6 +163,11 @@ export default function MapaPage() {
           <div className="card p-0 overflow-hidden" style={{ height: '600px' }}>
             <MapView imoveis={exibidos} selected={selected} onSelect={setSelected} />
           </div>
+          <div className="flex items-center gap-4 mt-2 text-xs text-gray-500 flex-wrap">
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Área Verde</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" /> Área Institucional</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" /> Não classificado</span>
+          </div>
         </div>
       </div>
     </div>

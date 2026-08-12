@@ -16,27 +16,29 @@ const cdn = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images'
 const shadowUrl = `${cdn}/marker-shadow.png`
 const iconBase = 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img'
 
-// Ícone azul explícito (exatos) — evita o caminho bugado do ícone padrão na remoção
-const exatoIcon = new L.Icon({
-  iconUrl: `${cdn}/marker-icon.png`,
-  iconRetinaUrl: `${cdn}/marker-icon-2x.png`,
-  shadowUrl,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-})
+function criarIcone(cor: string) {
+  return new L.Icon({
+    iconUrl: `${iconBase}/marker-icon-${cor}.png`,
+    iconRetinaUrl: `${iconBase}/marker-icon-2x-${cor}.png`,
+    shadowUrl,
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41],
+  })
+}
 
-// Marcador laranja para localizações estimadas pelo endereço
-const estimadoIcon = new L.Icon({
-  iconUrl: `${iconBase}/marker-icon-orange.png`,
-  iconRetinaUrl: `${iconBase}/marker-icon-2x-orange.png`,
-  shadowUrl,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-})
+// Cor do marcador reflete a categoria do imóvel — não mais se a localização é exata ou
+// estimada (isso continua indicado por texto no popup, abaixo).
+const areaVerdeIcon = criarIcone('green')
+const areaInstitucionalIcon = criarIcone('blue')
+const semCategoriaIcon = criarIcone('red')
+
+function iconePorCategoria(im: Imovel) {
+  if (im.categoria === 'AREA_VERDE') return areaVerdeIcon
+  if (im.categoria === 'AREA_INSTITUCIONAL') return areaInstitucionalIcon
+  return semCategoriaIcon
+}
 
 const coordValida = (im: Imovel | null): im is Imovel & { latitude: number; longitude: number } =>
   !!im && Number.isFinite(im.latitude) && Number.isFinite(im.longitude)
@@ -73,7 +75,7 @@ export default function MapView({ imoveis, selected, onSelect }: Props) {
         <Marker
           key={im.id}
           position={[im.latitude!, im.longitude!]}
-          icon={im.estimado ? estimadoIcon : exatoIcon}
+          icon={iconePorCategoria(im)}
           eventHandlers={{ click: () => onSelect(im) }}
         >
           <Popup>
@@ -87,9 +89,14 @@ export default function MapView({ imoveis, selected, onSelect }: Props) {
                   {im.precisaoGeo === 'rua' ? ' (nível de rua)' : im.precisaoGeo === 'area' ? ' (nível de bairro)' : ''}
                 </p>
               )}
-              <div className="flex gap-1 mt-1.5">
+              <div className="flex gap-1 mt-1.5 flex-wrap">
                 <span className={im.tipo === 'PROPRIO' ? 'badge-proprio' : 'badge-locado'}>{im.tipo}</span>
                 <span className={im.zona === 'URBANO' ? 'badge-urbano' : 'badge-rural'}>{im.zona}</span>
+                {im.categoria && (
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${im.categoria === 'AREA_VERDE' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                    {im.categoria === 'AREA_VERDE' ? 'Área Verde' : 'Área Institucional'}
+                  </span>
+                )}
               </div>
               <a
                 href={`https://maps.google.com/?q=${im.latitude},${im.longitude}`}
