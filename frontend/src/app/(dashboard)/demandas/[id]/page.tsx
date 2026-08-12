@@ -83,6 +83,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const router = useRouter()
   const { user, isMaster } = useAuth()
 
+  const [showDescricao, setShowDescricao] = useState(false)
   const [showNovaAtividade, setShowNovaAtividade] = useState(false)
   const [novoTitulo, setNovoTitulo] = useState('')
   const [novaEquipe, setNovaEquipe] = useState('')
@@ -364,10 +365,12 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
           <p className="text-gray-500 text-sm">
             {demanda.assunto}{demanda.interessado ? ` — ${demanda.interessado}` : ''}
             {demanda.prazo && <span className="ml-2 text-xs text-gray-400">Prazo: {format(new Date(demanda.prazo), 'dd/MM/yy', { locale: ptBR })}</span>}
+            {demanda.descricao && (
+              <button onClick={() => setShowDescricao(true)} className="ml-2 text-xs text-primary-600 hover:underline">
+                Ver descrição
+              </button>
+            )}
           </p>
-          {demanda.descricao && (
-            <p className="text-gray-600 text-sm mt-1 whitespace-pre-wrap">{demanda.descricao}</p>
-          )}
         </div>
         {isMaster && (
           <button
@@ -1089,6 +1092,22 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               >
                 Confirmar finalização
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDescricao && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-800">Descrição</h3>
+              <button onClick={() => setShowDescricao(false)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto">
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{demanda.descricao}</p>
             </div>
           </div>
         </div>
