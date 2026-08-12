@@ -122,9 +122,15 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [pDescricaoEdicao, setPDescricaoEdicao] = useState('')
   const [pProtocoloEdicao, setPProtocoloEdicao] = useState('')
 
-  const { data: demanda, isLoading } = useQuery<Demanda>({
+  const { data: demanda, isLoading, isError, error: demandaError } = useQuery<Demanda>({
     queryKey: ['demanda', id],
     queryFn: () => api.get(`/api/demandas/${id}`).then(r => r.data),
+    // Sem retry: se a atividade foi transferida (ou o acesso mudou) desde a última vez que
+    // essa demanda foi carregada, o React Query por padrão mantém os dados antigos em cache
+    // visíveis mesmo quando o refetch falha com 403 — isso deixava quem perdeu acesso ainda
+    // vendo a demanda ao clicar numa notificação antiga. Tratar o erro explicitamente abaixo
+    // evita esse vazamento de dado em cache.
+    retry: false,
   })
 
   const { data: usuarios = [] } = useQuery<User[]>({
@@ -305,6 +311,16 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   })
 
   if (isLoading) return <div className="p-8 text-center text-gray-400">Carregando...</div>
+  if (isError) {
+    const status = (demandaError as any)?.response?.status
+    return (
+      <div className="p-8 text-center text-gray-400">
+        {status === 403
+          ? 'Você não tem mais acesso a esta demanda — provavelmente a atividade que você tinha aqui foi transferida para outra pessoa.'
+          : 'Não foi possível carregar esta demanda.'}
+      </div>
+    )
+  }
   if (!demanda) return <div className="p-8 text-center text-gray-400">Demanda não encontrada</div>
 
   const atividadeModal = demanda.atividades.find(a => a.id === atividadeAberta) || null
