@@ -87,6 +87,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [showNovaAtividade, setShowNovaAtividade] = useState(false)
   const [novoTitulo, setNovoTitulo] = useState('')
   const [novaEquipe, setNovaEquipe] = useState('')
+  const [novoResponsavel, setNovoResponsavel] = useState('')
   const [novasInstrucoes, setNovasInstrucoes] = useState('')
   const [novoAnexoObrigatorio, setNovoAnexoObrigatorio] = useState(false)
   const [novoPrazo, setNovoPrazo] = useState('')
@@ -160,11 +161,12 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
       anexoObrigatorio: novoAnexoObrigatorio,
       prazo: novoPrazo || null,
       prioridade: novaPrioridade,
+      responsavelId: novoResponsavel || undefined,
     }),
     onSuccess: (res) => {
       invalidar()
       toast.success(`Atividade atribuída a ${res.data.responsavel?.name || 'um membro da equipe'}`)
-      setShowNovaAtividade(false); setNovoTitulo(''); setNovaEquipe(''); setNovasInstrucoes(''); setNovoAnexoObrigatorio(false); setNovoPrazo(''); setNovaPrioridade('MEDIA')
+      setShowNovaAtividade(false); setNovoTitulo(''); setNovaEquipe(''); setNovoResponsavel(''); setNovasInstrucoes(''); setNovoAnexoObrigatorio(false); setNovoPrazo(''); setNovaPrioridade('MEDIA')
     },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao criar atividade'))
   })
@@ -401,14 +403,28 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               </div>
               <div>
                 <label className="label">Equipe responsável</label>
-                <select className="input" value={novaEquipe} onChange={e => setNovaEquipe(e.target.value)}>
+                <select className="input" value={novaEquipe} onChange={e => { setNovaEquipe(e.target.value); setNovoResponsavel('') }}>
                   <option value="">Selecione a equipe...</option>
                   {equipes.filter(e => e.ativo).map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
                 </select>
                 <p className="text-xs text-gray-400 mt-1">
-                  A atividade é atribuída automaticamente a quem, na equipe, tiver menos atividades em aberto no momento.
+                  Por padrão, a atividade é atribuída automaticamente a quem, na equipe, tiver menos atividades em aberto no momento.
                 </p>
               </div>
+              {novaEquipe && (
+                <div>
+                  <label className="label">Usuário responsável (opcional)</label>
+                  <select className="input" value={novoResponsavel} onChange={e => setNovoResponsavel(e.target.value)}>
+                    <option value="">Distribuição automática (menor carga)</option>
+                    {equipes.find(e => e.id === novaEquipe)?.membros
+                      .filter(m => m.user.active)
+                      .map(m => <option key={m.user.id} value={m.user.id}>{m.user.name}</option>)}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Deixe em "Distribuição automática" para o sistema escolher, ou selecione manualmente um membro específico da equipe.
+                  </p>
+                </div>
+              )}
               <div>
                 <label className="label">Instruções / solicitação específica</label>
                 <textarea className="input min-h-16 resize-none" placeholder="O que deve ser feito, qual resultado é esperado..." value={novasInstrucoes} onChange={e => setNovasInstrucoes(e.target.value)} />

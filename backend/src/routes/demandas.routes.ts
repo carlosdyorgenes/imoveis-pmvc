@@ -456,7 +456,7 @@ demandasRouter.put('/:id/status', async (req: AuthRequest, res) => {
 // ===== Atividades =====
 
 demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
-  const { titulo, instrucoes, equipeId, prazo, anexoObrigatorio, prioridade } = req.body
+  const { titulo, instrucoes, equipeId, prazo, anexoObrigatorio, prioridade, responsavelId: responsavelEscolhidoId } = req.body
   if (!titulo?.trim()) throw new AppError('Título da atividade é obrigatório')
   if (!equipeId) throw new AppError('Informe a equipe responsável')
   if (prioridade && !['ALTA', 'MEDIA', 'BAIXA'].includes(prioridade)) throw new AppError('Prioridade inválida')
@@ -471,16 +471,25 @@ demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
   const equipe = await prisma.equipe.findUnique({ where: { id: equipeId } })
   if (!equipe || !equipe.ativo) throw new AppError('Equipe inválida')
 
-  // Distribuição automática: escolhe o membro ativo da equipe com menos atividades em aberto
-  // no momento, para nunca sobrecarregar sempre a mesma pessoa.
   const membros = await prisma.equipeMembro.findMany({ where: { equipeId, user: { active: true } }, select: { userId: true } })
   if (membros.length === 0) throw new AppError('Esta equipe não possui membros ativos para receber a atividade')
 
-  const cargas = await Promise.all(membros.map(async m => ({
-    userId: m.userId,
-    ativas: await prisma.atividade.count({ where: { responsavelId: m.userId, status: { in: STATUS_ATIVIDADE_ATIVOS as any } } }),
-  })))
-  const responsavelId = escolherResponsavelComMenorCarga(cargas)!
+  let responsavelId: string
+  if (responsavelEscolhidoId) {
+    // Escolha manual (opcional): precisa ser um membro ativo da própria equipe selecionada.
+    if (!membros.some(m => m.userId === responsavelEscolhidoId)) {
+      throw new AppError('O responsável escolhido precisa ser um membro ativo da equipe selecionada')
+    }
+    responsavelId = responsavelEscolhidoId
+  } else {
+    // Distribuição automática: escolhe o membro ativo da equipe com menos atividades em aberto
+    // no momento, para nunca sobrecarregar sempre a mesma pessoa.
+    const cargas = await Promise.all(membros.map(async m => ({
+      userId: m.userId,
+      ativas: await prisma.atividade.count({ where: { responsavelId: m.userId, status: { in: STATUS_ATIVIDADE_ATIVOS as any } } }),
+    })))
+    responsavelId = escolherResponsavelComMenorCarga(cargas)!
+  }
   const responsavel = await prisma.user.findUnique({ where: { id: responsavelId }, select: { name: true } })
 
   const atividade = await prisma.atividade.create({
@@ -506,7 +515,8 @@ demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
     await atualizarStatusConformeAtividades(demanda.id)
   }
 
-  await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" atribuída a ${responsavel?.name} (equipe ${equipe.nome}, por menor carga)`, atividade.id)
+  const motivoAtribuicao = responsavelEscolhidoId ? 'escolhido manualmente' : 'por menor carga'
+  await registrarHistorico(demanda.id, req.user!.id, 'ATIVIDADE_CRIADA', `Atividade "${atividade.titulo}" atribuída a ${responsavel?.name} (equipe ${equipe.nome}, ${motivoAtribuicao})`, atividade.id)
   await notificar(responsavelId, 'ATIVIDADE_ATRIBUIDA', `Nova atividade "${atividade.titulo}" (GEP ${demanda.gepNumero}/${demanda.gepAno})`, { demandaId: demanda.id, atividadeId: atividade.id })
   res.status(201).json(atividade)
 })
