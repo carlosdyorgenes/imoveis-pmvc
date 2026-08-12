@@ -72,6 +72,7 @@ export default function ImovelDetailPage({ params }: { params: { id: string } })
                 ['Secretaria', imovel.secretaria],
                 ['Tipo', imovel.tipo],
                 ['Zona', imovel.zona],
+                ['Categoria', imovel.categoria === 'AREA_VERDE' ? 'Área Verde' : imovel.categoria === 'AREA_INSTITUCIONAL' ? 'Área Institucional' : '—'],
                 ['Área', imovel.area ? `${imovel.area} m²` : '—'],
                 ['Coordenadas', imovel.latitude ? `${imovel.latitude}, ${imovel.longitude}` : '—'],
               ].map(([k, v]) => (

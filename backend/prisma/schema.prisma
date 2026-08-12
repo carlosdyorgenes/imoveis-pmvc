@@ -23,6 +23,11 @@ enum ZonaImovel {
   RURAL
 }
 
+enum CategoriaImovel {
+  AREA_VERDE
+  AREA_INSTITUCIONAL
+}
+
 enum StatusTarefa {
   PENDENTE
   EM_ANDAMENTO
@@ -327,6 +332,9 @@ model Imovel {
   secretaria           String
   tipo                 TipoImovel
   zona                 ZonaImovel
+  // Nem todo imóvel se encaixa nessa classificação (só quando for Área Verde ou
+  // Institucional) — por isso opcional, sem quebrar cadastros já existentes.
+  categoria            CategoriaImovel?
   latitude             Float?
   longitude            Float?
   area                 Float?

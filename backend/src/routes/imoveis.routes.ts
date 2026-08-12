@@ -13,7 +13,7 @@ imoveisRouter.use(authenticate)
 const upload = multer({ dest: path.join(__dirname, '../../uploads/temp') })
 
 imoveisRouter.get('/', async (req, res) => {
-  const { search, tipo, zona, secretaria } = req.query as Record<string, string>
+  const { search, tipo, zona, categoria, secretaria } = req.query as Record<string, string>
   const where: Record<string, unknown> = {}
 
   if (search) {
@@ -25,6 +25,7 @@ imoveisRouter.get('/', async (req, res) => {
   }
   if (tipo) where.tipo = tipo
   if (zona) where.zona = zona
+  if (categoria) where.categoria = categoria
   if (secretaria) where.secretaria = { contains: secretaria, mode: 'insensitive' }
 
   const imoveis = await prisma.imovel.findMany({
@@ -61,7 +62,7 @@ imoveisRouter.post('/', async (req: AuthRequest, res) => {
 const CAMPOS_IMOVEL = [
   'inscricaoImobiliaria', 'registroCartorario', 'cartorioImoveis',
   'logradouro', 'numero', 'complemento', 'bairro', 'cidade', 'estado', 'cep',
-  'secretaria', 'tipo', 'zona', 'latitude', 'longitude', 'area', 'observacoes',
+  'secretaria', 'tipo', 'zona', 'categoria', 'latitude', 'longitude', 'area', 'observacoes',
 ] as const
 
 function pickImovelData(body: Record<string, unknown>) {
@@ -120,6 +121,7 @@ imoveisRouter.get('/template/download', (req, res) => {
     'inscricaoImobiliaria', 'registroCartorario', 'cartorioImoveis',
     'logradouro', 'numero', 'complemento', 'bairro', 'cidade', 'estado', 'cep',
     'secretaria', 'tipo (PROPRIO/LOCADO)', 'zona (URBANO/RURAL)',
+    'categoria (AREA_VERDE/AREA_INSTITUCIONAL, opcional)',
     'latitude', 'longitude', 'area', 'observacoes'
   ]
   const ws = XLSX.utils.aoa_to_sheet([headers])
@@ -157,6 +159,9 @@ imoveisRouter.post('/import/upload', upload.single('file'), async (req: AuthRequ
           secretaria: String(row['secretaria'] || ''),
           tipo: String(row['tipo (PROPRIO/LOCADO)'] || 'PROPRIO') as 'PROPRIO' | 'LOCADO',
           zona: String(row['zona (URBANO/RURAL)'] || 'URBANO') as 'URBANO' | 'RURAL',
+          categoria: row['categoria (AREA_VERDE/AREA_INSTITUCIONAL, opcional)']
+            ? String(row['categoria (AREA_VERDE/AREA_INSTITUCIONAL, opcional)']) as 'AREA_VERDE' | 'AREA_INSTITUCIONAL'
+            : undefined,
           latitude: row['latitude'] ? Number(row['latitude']) : undefined,
           longitude: row['longitude'] ? Number(row['longitude']) : undefined,
           area: row['area'] ? Number(row['area']) : undefined,

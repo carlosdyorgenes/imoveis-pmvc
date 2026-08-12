@@ -1,6 +1,7 @@
 export type UserRole = 'MASTER' | 'PADRAO'
 export type TipoImovel = 'PROPRIO' | 'LOCADO'
 export type ZonaImovel = 'URBANO' | 'RURAL'
+export type CategoriaImovel = 'AREA_VERDE' | 'AREA_INSTITUCIONAL'
 
 export type StatusDemanda = 'ABERTA' | 'EM_ANDAMENTO' | 'PARCIALMENTE_CONCLUIDA' | 'AGUARDANDO_TERCEIRO' | 'DEVOLVIDA' | 'CONCLUIDA' | 'CANCELADA'
 export type StatusAtividade = 'ATRIBUIDA' | 'EM_ANDAMENTO' | 'AGUARDANDO_INFORMACAO' | 'CONCLUIDA' | 'DEVOLVIDA' | 'APROVADA' | 'REABERTA' | 'CANCELADA'
@@ -57,6 +58,7 @@ export interface Imovel {
   secretaria: string
   tipo: TipoImovel
   zona: ZonaImovel
+  categoria?: CategoriaImovel | null
   latitude?: number
   longitude?: number
   estimado?: boolean

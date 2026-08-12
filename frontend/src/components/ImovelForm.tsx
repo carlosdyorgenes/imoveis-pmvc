@@ -23,6 +23,7 @@ export interface ImovelFormData {
   secretaria: string
   tipo: 'PROPRIO' | 'LOCADO'
   zona: 'URBANO' | 'RURAL'
+  categoria?: 'AREA_VERDE' | 'AREA_INSTITUCIONAL' | ''
   latitude?: number
   longitude?: number
   area?: number
@@ -53,6 +54,7 @@ export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
       cidade: 'Vitória da Conquista',
       documentos: [],
       ...defaultValues,
+      categoria: defaultValues?.categoria || '',
     }
   })
 
@@ -124,8 +126,13 @@ export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
     }
   }
 
+  // Envia null (não undefined) quando vazio: undefined é removido do JSON e o backend
+  // interpreta "campo ausente" como "não mexer" — precisamos conseguir limpar a categoria
+  // de um imóvel já classificado.
+  const submeter = handleSubmit(data => onSubmit({ ...data, categoria: data.categoria || null } as unknown as ImovelFormData))
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)}>
+    <form onSubmit={submeter}>
       <div className="flex gap-1 border-b border-gray-200 mb-6">
         {TABS.map((t, i) => (
           <button
@@ -231,7 +238,7 @@ export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
             {errors.secretaria && <p className="text-red-500 text-xs mt-1">{errors.secretaria.message}</p>}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="label">Tipo do Imóvel</label>
               <select {...register('tipo')} className="input">
@@ -244,6 +251,14 @@ export function ImovelForm({ defaultValues, onSubmit, loading }: Props) {
               <select {...register('zona')} className="input">
                 <option value="URBANO">Urbano</option>
                 <option value="RURAL">Rural</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Categoria</label>
+              <select {...register('categoria')} className="input">
+                <option value="">Não classificado</option>
+                <option value="AREA_VERDE">Área Verde</option>
+                <option value="AREA_INSTITUCIONAL">Área Institucional</option>
               </select>
             </div>
           </div>

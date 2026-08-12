@@ -16,11 +16,12 @@ export default function ImoveisPage() {
   const [search, setSearch] = useState('')
   const [tipo, setTipo] = useState(searchParams.get('tipo') || '')
   const [zona, setZona] = useState(searchParams.get('zona') || '')
+  const [categoria, setCategoria] = useState(searchParams.get('categoria') || '')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const { data: imoveis = [], isLoading } = useQuery<Imovel[]>({
-    queryKey: ['imoveis', search, tipo, zona],
-    queryFn: () => api.get('/api/imoveis', { params: { search, tipo, zona } }).then(r => r.data)
+    queryKey: ['imoveis', search, tipo, zona, categoria],
+    queryFn: () => api.get('/api/imoveis', { params: { search, tipo, zona, categoria } }).then(r => r.data)
   })
 
   const deleteMutation = useMutation({
@@ -91,6 +92,11 @@ export default function ImoveisPage() {
             <option value="URBANO">Urbano</option>
             <option value="RURAL">Rural</option>
           </select>
+          <select className="input sm:w-48" value={categoria} onChange={e => setCategoria(e.target.value)}>
+            <option value="">Todas as categorias</option>
+            <option value="AREA_VERDE">Área Verde</option>
+            <option value="AREA_INSTITUCIONAL">Área Institucional</option>
+          </select>
         </div>
       </div>
 
@@ -115,6 +121,7 @@ export default function ImoveisPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Secretaria</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Tipo</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Zona</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Categoria</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Geo</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Ocorr.</th>
                   <th className="px-4 py-3"></th>
@@ -133,6 +140,15 @@ export default function ImoveisPage() {
                     </td>
                     <td className="px-4 py-3">
                       <span className={im.zona === 'URBANO' ? 'badge-urbano' : 'badge-rural'}>{im.zona}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {im.categoria ? (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${im.categoria === 'AREA_VERDE' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {im.categoria === 'AREA_VERDE' ? 'Área Verde' : 'Área Institucional'}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 text-xs">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {im.latitude && im.longitude ? (
