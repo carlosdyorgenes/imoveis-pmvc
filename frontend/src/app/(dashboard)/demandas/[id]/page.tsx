@@ -109,6 +109,9 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [novoResponsavelTransfer, setNovoResponsavelTransfer] = useState('')
   const [justificativaTransfer, setJustificativaTransfer] = useState('')
 
+  const [showEncerrarAtividade, setShowEncerrarAtividade] = useState(false)
+  const [motivoEncerrar, setMotivoEncerrar] = useState('')
+
   const [showEditarAtividade, setShowEditarAtividade] = useState(false)
   const [editTitulo, setEditTitulo] = useState('')
   const [editInstrucoes, setEditInstrucoes] = useState('')
@@ -192,6 +195,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
       setShowDevolver(false); setDevolverMotivo('')
       setShowFinalizar(false); setInfoFinalizacao('')
       setShowReabrir(false); setMotivoReabrir('')
+      setShowEncerrarAtividade(false); setMotivoEncerrar('')
     },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao atualizar atividade'))
   })
@@ -653,7 +657,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                     <Trash2 className="w-4 h-4" />
                   </button>
                 )}
-                <button onClick={() => { setAtividadeAberta(null); setShowDevolver(false); setShowPendencia(false); setPendenciaEditando(null); setShowEditarAtividade(false) }} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <button onClick={() => { setAtividadeAberta(null); setShowDevolver(false); setShowPendencia(false); setPendenciaEditando(null); setShowEditarAtividade(false); setShowEncerrarAtividade(false); setMotivoEncerrar('') }} className="p-1.5 hover:bg-gray-100 rounded-lg">
                   <X className="w-5 h-5 text-gray-500" />
                 </button>
               </div>
@@ -1000,6 +1004,11 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   <Repeat className="w-3.5 h-3.5" /> Transferir tarefa
                 </button>
               )}
+              {isMaster && ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'DEVOLVIDA', 'REABERTA'].includes(atividadeModal.status) && (
+                <button onClick={() => setShowEncerrarAtividade(true)} className="btn-secondary w-full justify-center text-xs text-red-600 hover:bg-red-50">
+                  <X className="w-3.5 h-3.5" /> Encerrar atividade
+                </button>
+              )}
               {atividadeModal.status === 'CONCLUIDA' && isSolicitante(atividadeModal) && !showDevolver && (
                 <div className="flex gap-2">
                   <button onClick={() => setShowDevolver(true)} className="btn-secondary flex-1 justify-center">Devolver para correção</button>
@@ -1101,6 +1110,38 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 className="btn-primary flex-1 justify-center"
               >
                 Transferir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEncerrarAtividade && atividadeModal && isMaster && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h2 className="font-semibold text-gray-800">Encerrar atividade</h2>
+              <button onClick={() => { setShowEncerrarAtividade(false); setMotivoEncerrar('') }} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-gray-600">
+                Isso encerra a atividade <strong>&quot;{atividadeModal.titulo}&quot;</strong> (equipe {atividadeModal.equipe?.nome || '—'}) independentemente de quem seja o responsável, tirando-a da fila de qualquer usuário. Use quando a atividade não fizer mais sentido ser executada.
+              </p>
+              <div>
+                <label className="label">Justificativa (opcional)</label>
+                <textarea className="input min-h-16 resize-none" placeholder="Motivo do encerramento administrativo..." value={motivoEncerrar} onChange={e => setMotivoEncerrar(e.target.value)} autoFocus />
+              </div>
+            </div>
+            <div className="flex gap-3 p-5 border-t border-gray-100">
+              <button onClick={() => { setShowEncerrarAtividade(false); setMotivoEncerrar('') }} className="btn-secondary flex-1 justify-center">Voltar</button>
+              <button
+                onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'CANCELADA', motivo: motivoEncerrar.trim() || undefined })}
+                disabled={statusAtividade.isPending}
+                className="btn-danger flex-1 justify-center"
+              >
+                Encerrar
               </button>
             </div>
           </div>

@@ -626,7 +626,7 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
     APROVADA: `Atividade "${atividade.titulo}" aprovada pelo solicitante`,
     DEVOLVIDA: `Atividade "${atividade.titulo}" devolvida para correção: ${motivo}`,
     REABERTA: `Atividade "${atividade.titulo}" reaberta: ${motivo}`,
-    CANCELADA: `Atividade "${atividade.titulo}" cancelada`,
+    CANCELADA: `Atividade "${atividade.titulo}" cancelada${motivo ? `: ${motivo}` : ''}`,
   }
 
   await registrarHistorico(atividade.demandaId, req.user!.id, 'ATIVIDADE_STATUS', acaoDesc[status] || `Atividade "${atividade.titulo}" -> ${status}`, atividade.id)
