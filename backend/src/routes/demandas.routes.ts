@@ -521,6 +521,32 @@ demandasRouter.post('/:demandaId/atividades', async (req: AuthRequest, res) => {
   res.status(201).json(atividade)
 })
 
+// Edição dos dados cadastrais da atividade (título, instruções, prazo, prioridade, anexo
+// obrigatório) — restrita ao Master. Não mexe em equipe/responsável: isso continua sendo
+// feito por "Transferir tarefa", que já cuida da visibilidade/notificação corretamente.
+demandasRouter.put('/atividades/:id', requireMaster, async (req: AuthRequest, res) => {
+  const { titulo, instrucoes, prazo, prioridade, anexoObrigatorio } = req.body
+  const atividade = await prisma.atividade.findUnique({ where: { id: req.params.id } })
+  if (!atividade) throw new AppError('Atividade não encontrada', 404)
+  if (titulo !== undefined && !titulo.trim()) throw new AppError('Título da atividade é obrigatório')
+  if (prioridade !== undefined && !['ALTA', 'MEDIA', 'BAIXA'].includes(prioridade)) throw new AppError('Prioridade inválida')
+
+  const atualizada = await prisma.atividade.update({
+    where: { id: atividade.id },
+    data: {
+      ...(titulo !== undefined ? { titulo: titulo.trim() } : {}),
+      ...(instrucoes !== undefined ? { instrucoes } : {}),
+      ...(prazo !== undefined ? { prazo: prazo ? new Date(prazo) : null } : {}),
+      ...(prioridade !== undefined ? { prioridade } : {}),
+      ...(anexoObrigatorio !== undefined ? { anexoObrigatorio: !!anexoObrigatorio } : {}),
+    },
+    include: { responsavel: { select: { id: true, name: true } }, equipe: { select: { id: true, nome: true } }, solicitante: { select: { id: true, name: true } }, passos: true, documentos: true },
+  })
+
+  await registrarHistorico(atividade.demandaId, req.user!.id, 'ATIVIDADE_EDITADA', `Atividade "${atualizada.titulo}" editada pelo Master`, atividade.id)
+  res.json(atualizada)
+})
+
 demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
   const { status, motivo, observacoes, linkDocumento, informacoesFinalizacao } = req.body
   const atividade = await prisma.atividade.findUnique({

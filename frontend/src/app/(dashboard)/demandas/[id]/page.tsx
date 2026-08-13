@@ -109,6 +109,13 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [novoResponsavelTransfer, setNovoResponsavelTransfer] = useState('')
   const [justificativaTransfer, setJustificativaTransfer] = useState('')
 
+  const [showEditarAtividade, setShowEditarAtividade] = useState(false)
+  const [editTitulo, setEditTitulo] = useState('')
+  const [editInstrucoes, setEditInstrucoes] = useState('')
+  const [editPrazo, setEditPrazo] = useState('')
+  const [editPrioridade, setEditPrioridade] = useState<Prioridade>('MEDIA')
+  const [editAnexoObrigatorio, setEditAnexoObrigatorio] = useState(false)
+
   const [observacoesTexto, setObservacoesTexto] = useState('')
 
   const [showReabrir, setShowReabrir] = useState(false)
@@ -201,6 +208,18 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
       router.refresh()
     },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao transferir atividade'))
+  })
+
+  const editarAtividade = useMutation({
+    mutationFn: (atividadeId: string) => api.put(`/api/demandas/atividades/${atividadeId}`, {
+      titulo: editTitulo,
+      instrucoes: editInstrucoes,
+      prazo: editPrazo || null,
+      prioridade: editPrioridade,
+      anexoObrigatorio: editAnexoObrigatorio,
+    }),
+    onSuccess: () => { invalidar(); setShowEditarAtividade(false); toast.success('Atividade atualizada') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao editar atividade'))
   })
 
   const addPasso = useMutation({
@@ -602,9 +621,27 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   {STATUS_ATIV_LABEL[atividadeModal.status]}
                 </span>
               </div>
-              <button onClick={() => { setAtividadeAberta(null); setShowDevolver(false); setShowPendencia(false); setPendenciaEditando(null) }} className="p-1.5 hover:bg-gray-100 rounded-lg flex-shrink-0">
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {isMaster && (
+                  <button
+                    onClick={() => {
+                      setEditTitulo(atividadeModal.titulo)
+                      setEditInstrucoes(atividadeModal.instrucoes || '')
+                      setEditPrazo(atividadeModal.prazo ? atividadeModal.prazo.slice(0, 10) : '')
+                      setEditPrioridade(atividadeModal.prioridade)
+                      setEditAnexoObrigatorio(atividadeModal.anexoObrigatorio)
+                      setShowEditarAtividade(true)
+                    }}
+                    className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-primary-600"
+                    title="Editar atividade"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                )}
+                <button onClick={() => { setAtividadeAberta(null); setShowDevolver(false); setShowPendencia(false); setPendenciaEditando(null); setShowEditarAtividade(false) }} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
             </div>
 
             {atividadeModal.status === 'ATRIBUIDA' && isResponsavel(atividadeModal) && (
@@ -1049,6 +1086,58 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 className="btn-primary flex-1 justify-center"
               >
                 Transferir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditarAtividade && atividadeModal && isMaster && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h2 className="font-semibold text-gray-800">Editar atividade</h2>
+              <button onClick={() => setShowEditarAtividade(false)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1 space-y-3">
+              <div>
+                <label className="label">Título da atividade</label>
+                <input className="input" value={editTitulo} onChange={e => setEditTitulo(e.target.value)} autoFocus />
+              </div>
+              <div>
+                <label className="label">Instruções / solicitação específica</label>
+                <textarea className="input min-h-16 resize-none" value={editInstrucoes} onChange={e => setEditInstrucoes(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Prazo de execução</label>
+                  <input type="date" className="input" value={editPrazo} onChange={e => setEditPrazo(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Prioridade</label>
+                  <select className="input" value={editPrioridade} onChange={e => setEditPrioridade(e.target.value as Prioridade)}>
+                    {Object.entries(PRIORIDADE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <input type="checkbox" checked={editAnexoObrigatorio} onChange={e => setEditAnexoObrigatorio(e.target.checked)} className="w-3.5 h-3.5" />
+                Anexo obrigatório para finalizar esta atividade
+              </label>
+              <p className="text-xs text-gray-400">
+                Equipe e responsável não são editáveis aqui — use "Transferir tarefa" para mudar quem está com a atividade.
+              </p>
+            </div>
+            <div className="flex gap-3 p-5 border-t border-gray-100">
+              <button onClick={() => setShowEditarAtividade(false)} className="btn-secondary flex-1 justify-center">Cancelar</button>
+              <button
+                onClick={() => editTitulo.trim() && editarAtividade.mutate(atividadeModal.id)}
+                disabled={!editTitulo.trim() || editarAtividade.isPending}
+                className="btn-primary flex-1 justify-center"
+              >
+                Salvar
               </button>
             </div>
           </div>
