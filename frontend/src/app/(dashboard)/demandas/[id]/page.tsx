@@ -160,6 +160,12 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao excluir demanda'))
   })
 
+  const excluirAtividade = useMutation({
+    mutationFn: (atividadeId: string) => api.delete(`/api/demandas/atividades/${atividadeId}`),
+    onSuccess: () => { invalidar(); setAtividadeAberta(null); toast.success('Atividade excluída') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao excluir atividade'))
+  })
+
   const createAtividade = useMutation({
     mutationFn: () => api.post(`/api/demandas/${id}/atividades`, {
       titulo: novoTitulo,
@@ -636,6 +642,15 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                     title="Editar atividade"
                   >
                     <Pencil className="w-4 h-4" />
+                  </button>
+                )}
+                {isMaster && (
+                  <button
+                    onClick={() => confirm(`Excluir definitivamente a atividade "${atividadeModal.titulo}"?\n\nIsso apaga também o checklist, documentos, pendências e histórico dela. Esta ação não pode ser desfeita.`) && excluirAtividade.mutate(atividadeModal.id)}
+                    className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-red-600"
+                    title="Excluir atividade"
+                  >
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 )}
                 <button onClick={() => { setAtividadeAberta(null); setShowDevolver(false); setShowPendencia(false); setPendenciaEditando(null); setShowEditarAtividade(false) }} className="p-1.5 hover:bg-gray-100 rounded-lg">
