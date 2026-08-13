@@ -723,8 +723,8 @@ async function atualizarStatusConformeAtividades(demandaId: string) {
 demandasRouter.delete('/atividades/:id', async (req: AuthRequest, res) => {
   const atividade = await prisma.atividade.findUnique({ where: { id: req.params.id } })
   if (!atividade) throw new AppError('Atividade não encontrada', 404)
-  if (req.user!.role !== 'MASTER' && atividade.solicitanteId !== req.user!.id) {
-    throw new AppError('Somente quem criou a atividade (ou o Master) pode removê-la', 403)
+  if (req.user!.role !== 'MASTER') {
+    throw new AppError('Somente o Master pode remover atividades', 403)
   }
   await prisma.atividade.delete({ where: { id: atividade.id } })
   await registrarHistorico(atividade.demandaId, req.user!.id, 'ATIVIDADE_REMOVIDA', `Atividade "${atividade.titulo}" removida`, atividade.id)
