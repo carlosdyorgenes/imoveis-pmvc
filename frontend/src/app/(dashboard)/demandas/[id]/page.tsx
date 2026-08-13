@@ -367,6 +367,10 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   // Checklist, observações e documentos só ficam liberados depois que a atividade foi
   // iniciada ao menos uma vez (dataInicio preenchida) — antes disso, tudo fica bloqueado.
   const podeEditarCampos = (a: Atividade) => podeGerenciarChecklist(a) && !!a.dataInicio
+  // Documentos: Master pode anexar mesmo antes da atividade ter sido iniciada — o bloqueio por
+  // dataInicio existe pra impedir responsável/solicitante de mexer numa atividade parada, mas
+  // não faz sentido pro Master, que precisa poder complementar documentação a qualquer momento.
+  const podeAnexarDocumento = (a: Atividade) => isMaster || podeEditarCampos(a)
 
   const statusExibido = statusPercebido(demanda, isMaster, user?.id, equipes)
 
@@ -802,7 +806,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1.5">
                   <FileText className="w-3.5 h-3.5" /> Documentos
                 </p>
-                {podeEditarCampos(atividadeModal) && (
+                {podeAnexarDocumento(atividadeModal) && (
                   <div className="space-y-2 mb-2">
                     <input className="input text-sm" placeholder="Nome do documento (ex: Planta, Memorial...)" value={novoDocNome} onChange={e => setNovoDocNome(e.target.value)} />
                     <div className="flex gap-2">
@@ -859,7 +863,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                             <ShieldCheck className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        {podeEditarCampos(atividadeModal) && (
+                        {podeAnexarDocumento(atividadeModal) && (
                           <button onClick={() => deleteDocumento.mutate(d.id)} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
