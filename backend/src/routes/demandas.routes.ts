@@ -271,10 +271,25 @@ demandasRouter.get('/atividades/minhas', async (req: AuthRequest, res) => {
 
 demandasRouter.get('/', async (req: AuthRequest, res) => {
   await escalonarPrazosVencidos()
-  const { status, gep, responsavelId, atrasadas, prioridade } = req.query as Record<string, string>
+  // "gep" é mantido por compatibilidade (busca só pelo número do GEP); "busca" é a busca
+  // textual nova, que cobre GEP, assunto, descrição e interessado — pra achar a demanda por
+  // do que ela trata quando não se lembra o número.
+  const { status, gep, busca, responsavelId, atrasadas, prioridade } = req.query as Record<string, string>
   const where: Record<string, unknown> = {}
+  const andConditions: Record<string, unknown>[] = []
+
   if (status) where.status = status
   if (gep) where.gepNumero = { contains: gep, mode: 'insensitive' }
+  if (busca) {
+    andConditions.push({
+      OR: [
+        { gepNumero: { contains: busca, mode: 'insensitive' } },
+        { assunto: { contains: busca, mode: 'insensitive' } },
+        { descricao: { contains: busca, mode: 'insensitive' } },
+        { interessado: { contains: busca, mode: 'insensitive' } },
+      ],
+    })
+  }
   if (prioridade) where.prioridade = prioridade
   if (atrasadas === 'true') {
     where.prazo = { lt: new Date() }
@@ -288,11 +303,15 @@ demandasRouter.get('/', async (req: AuthRequest, res) => {
   // tem/teve uma atividade atribuída a ele ou à sua equipe — nunca a base inteira.
   if (req.user!.role !== 'MASTER') {
     const equipeIds = await getEquipeIdsDoUsuario(req.user!.id)
-    where.OR = [
-      { solicitanteId: req.user!.id },
-      { atividades: { some: { OR: [{ responsavelId: req.user!.id }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds }, responsavelId: null }] : [])] } } },
-    ]
+    andConditions.push({
+      OR: [
+        { solicitanteId: req.user!.id },
+        { atividades: { some: { OR: [{ responsavelId: req.user!.id }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds }, responsavelId: null }] : [])] } } },
+      ],
+    })
   }
+
+  if (andConditions.length > 0) where.AND = andConditions
 
   const demandas = await prisma.demanda.findMany({
     where,

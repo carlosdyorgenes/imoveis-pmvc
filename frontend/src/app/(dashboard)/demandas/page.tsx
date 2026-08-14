@@ -100,7 +100,7 @@ export default function DemandasPage() {
     queryKey: ['demandas', gepBusca, filtroStatus, filtroPrioridade, somenteAtrasadas],
     queryFn: () => api.get('/api/demandas', {
       params: {
-        ...(gepBusca ? { gep: gepBusca } : {}),
+        ...(gepBusca ? { busca: gepBusca } : {}),
         ...(filtroStatus ? { status: filtroStatus } : {}),
         ...(filtroPrioridade ? { prioridade: filtroPrioridade } : {}),
         ...(somenteAtrasadas ? { atrasadas: 'true' } : {}),
@@ -307,7 +307,7 @@ export default function DemandasPage() {
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
             <input
               className="input pl-9"
-              placeholder="Buscar por número do GEP..."
+              placeholder="Buscar por GEP, assunto, descrição ou interessado..."
               value={gepBusca}
               onChange={e => setGepBusca(e.target.value)}
             />
