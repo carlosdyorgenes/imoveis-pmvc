@@ -66,6 +66,60 @@ const STATUS_DEMANDA_COLOR: Record<StatusDemanda, string> = {
   CANCELADA: 'bg-red-100 text-red-700',
 }
 
+// Monta um texto formal, pronto pra reportar, com a situação atual de cada atividade da
+// demanda — usado pelo botão "Resumo da demanda" (Master). Determinístico: não usa IA, só
+// formata os dados já carregados, então o texto é sempre consistente com o que está na tela.
+function gerarResumoDemanda(demanda: Demanda, autor: string): string {
+  const dataHora = (iso: string) => format(new Date(iso), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+  const dataCurta = (iso: string) => format(new Date(iso), 'dd/MM/yyyy', { locale: ptBR })
+
+  const linhas: string[] = []
+  linhas.push(`RESUMO DA DEMANDA — GEP ${demanda.gepNumero}/${demanda.gepAno}`)
+  linhas.push('')
+  linhas.push(`Assunto: ${demanda.assunto}`)
+  if (demanda.interessado) linhas.push(`Interessado: ${demanda.interessado}`)
+  linhas.push(`Solicitante: ${demanda.solicitante.name}`)
+  linhas.push(`Status geral: ${STATUS_DEMANDA_LABEL[demanda.status]}`)
+  linhas.push(`Prioridade: ${PRIORIDADE_LABEL[demanda.prioridade]}`)
+  linhas.push(`Prazo geral: ${demanda.prazo ? dataCurta(demanda.prazo) : 'não definido'}`)
+  linhas.push(`Aberta em: ${dataCurta(demanda.createdAt)}`)
+  linhas.push('')
+
+  const atividades = demanda.atividades.filter(a => a.status !== 'CANCELADA')
+  linhas.push(`SITUAÇÃO DAS ATIVIDADES (${atividades.length})`)
+  linhas.push('')
+
+  if (atividades.length === 0) {
+    linhas.push('Nenhuma atividade cadastrada até o momento.')
+  }
+
+  atividades.forEach((a, i) => {
+    const atrasada = a.prazo && new Date(a.prazo) < new Date() && !['CONCLUIDA', 'APROVADA'].includes(a.status)
+    linhas.push(`${i + 1}. ${a.titulo}`)
+    linhas.push(`   Equipe: ${a.equipe?.nome || 'não definida'} | Responsável: ${a.responsavel?.name || 'não definido'}`)
+    linhas.push(`   Status: ${STATUS_ATIV_LABEL[a.status]} | Prioridade: ${PRIORIDADE_LABEL[a.prioridade]}`)
+    linhas.push(`   Prazo: ${a.prazo ? dataCurta(a.prazo) : 'não definido'}${atrasada ? ' (em atraso)' : ''}`)
+    if (a.tempos) {
+      linhas.push(`   Tempo em espera: ${a.tempos.tempoEspera.texto} | Tempo em execução: ${a.tempos.tempoExecucao?.texto || 'atividade não iniciada'}`)
+    }
+    const pendencias = (demanda.pendenciasExternas || []).filter(p => p.atividadeId === a.id && p.status !== 'RESPONDIDA')
+    if (pendencias.length > 0) {
+      linhas.push(`   Pendência(s) externa(s) em aberto: ${pendencias.map(p => `${p.orgao} (${p.descricao})`).join('; ')}`)
+    }
+    if (a.status === 'DEVOLVIDA' && a.motivoDevolucao) {
+      linhas.push(`   Motivo da devolução: ${a.motivoDevolucao}`)
+    }
+    if (a.observacoes?.trim()) {
+      linhas.push(`   Observações: ${a.observacoes.trim()}`)
+    }
+    linhas.push('')
+  })
+
+  linhas.push(`Relatório gerado em ${dataHora(new Date().toISOString())} por ${autor}.`)
+
+  return linhas.join('\n')
+}
+
 // Espelha o mesmo critério de "envolvido" usado na visibilidade individual: responsável
 // direto, ou fallback por equipe só quando a atividade não tem responsável definido. Um setor
 // cuja atividade já foi aprovada, sem nova pendência atribuída a ele, vê a demanda como
@@ -89,6 +143,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const { user, isMaster } = useAuth()
 
   const [showDescricao, setShowDescricao] = useState(false)
+  const [showResumo, setShowResumo] = useState(false)
   const [showNovaAtividade, setShowNovaAtividade] = useState(false)
   const [novoTitulo, setNovoTitulo] = useState('')
   const [novaEquipe, setNovaEquipe] = useState('')
@@ -426,11 +481,18 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
         <div className="lg:col-span-2 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-800">Atividades</h2>
-            {(isMaster || demanda.solicitante.id === user?.id) && (
-              <button onClick={() => { setNovoPrazo(demanda.prazo ? demanda.prazo.slice(0, 10) : ''); setNovaPrioridade(demanda.prioridade); setShowNovaAtividade(true) }} className="btn-primary text-xs">
-                <Plus className="w-3.5 h-3.5" /> Nova Atividade
-              </button>
-            )}
+            <div className="flex gap-2">
+              {isMaster && (
+                <button onClick={() => setShowResumo(true)} className="btn-secondary text-xs">
+                  <FileText className="w-3.5 h-3.5" /> Resumo da demanda
+                </button>
+              )}
+              {(isMaster || demanda.solicitante.id === user?.id) && (
+                <button onClick={() => { setNovoPrazo(demanda.prazo ? demanda.prazo.slice(0, 10) : ''); setNovaPrioridade(demanda.prioridade); setShowNovaAtividade(true) }} className="btn-primary text-xs">
+                  <Plus className="w-3.5 h-3.5" /> Nova Atividade
+                </button>
+              )}
+            </div>
           </div>
 
           {showNovaAtividade && (
@@ -1284,6 +1346,38 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
             </div>
             <div className="p-5 overflow-y-auto">
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{demanda.descricao}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showResumo && isMaster && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-800 flex items-center gap-1.5">
+                <FileText className="w-4 h-4" /> Resumo da demanda
+              </h3>
+              <button onClick={() => setShowResumo(false)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1">
+              <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans bg-gray-50 rounded-lg p-4 border border-gray-200">
+                {gerarResumoDemanda(demanda, user?.name || 'Master')}
+              </pre>
+            </div>
+            <div className="flex gap-3 p-5 border-t border-gray-100">
+              <button onClick={() => setShowResumo(false)} className="btn-secondary flex-1 justify-center">Fechar</button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(gerarResumoDemanda(demanda, user?.name || 'Master'))
+                  toast.success('Resumo copiado para a área de transferência')
+                }}
+                className="btn-primary flex-1 justify-center"
+              >
+                Copiar texto
+              </button>
             </div>
           </div>
         </div>
