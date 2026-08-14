@@ -363,6 +363,59 @@ demandasRouter.get('/:id', async (req: AuthRequest, res) => {
   res.json({ ...demanda, atividades: atividadesComTempos, historico: historicoVisivel })
 })
 
+// Reescreve em prosa formal, via IA, o resumo estruturado que o frontend já monta a partir
+// dos dados reais da demanda (gerarResumoDemanda). O prompt restringe a IA a só reformatar o
+// texto recebido — nunca inventar dado novo — pra evitar que o relatório "alucine" informação
+// que não está no sistema. Restrito ao Master, mesma pessoa que já usa o resumo estruturado.
+const SYSTEM_PROMPT_RESUMO_IA = `Você reescreve resumos técnicos de status de demandas administrativas de uma prefeitura em texto formal, objetivo e institucional, em português do Brasil, para uso em relatórios oficiais.
+
+Regras obrigatórias:
+1. Use exclusivamente as informações presentes no texto de entrada. Nunca invente, presuma ou acrescente nome, prazo, status, valor ou qualquer outro dado que não esteja explicitamente ali.
+2. Se alguma informação do texto de entrada estiver marcada como "não definido" ou "não informado", mantenha essa ausência de forma natural na prosa (não omita silenciosamente nem invente um valor).
+3. Escreva em parágrafos corridos, tom formal e institucional — sem listas, marcadores ou markdown.
+4. Não adicione saudação, introdução ("Segue o resumo:") nem assinatura. Responda apenas com o texto do relatório.`
+
+demandasRouter.post('/:id/resumo-formal', requireMaster, async (req: AuthRequest, res) => {
+  const { texto } = req.body
+  if (!texto?.trim()) throw new AppError('Informe o texto a ser reescrito')
+
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new AppError('Geração por IA não configurada neste servidor (falta ANTHROPIC_API_KEY)', 503)
+
+  const demanda = await prisma.demanda.findUnique({ where: { id: req.params.id }, select: { id: true } })
+  if (!demanda) throw new AppError('Demanda não encontrada', 404)
+
+  let resposta: Response
+  try {
+    resposta = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-5',
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT_RESUMO_IA,
+        messages: [{ role: 'user', content: texto }],
+      }),
+    })
+  } catch {
+    throw new AppError('Falha de comunicação com o serviço de IA. Tente novamente.', 502)
+  }
+
+  if (!resposta.ok) {
+    throw new AppError(`Serviço de IA retornou erro (${resposta.status}). Tente novamente.`, 502)
+  }
+
+  const data = await resposta.json() as { content?: { type: string; text?: string }[] }
+  const textoFormal = data.content?.find(c => c.type === 'text')?.text?.trim()
+  if (!textoFormal) throw new AppError('O serviço de IA não retornou texto. Tente novamente.', 502)
+
+  res.json({ texto: textoFormal })
+})
+
 // Padrão de negócio do protocolo GEP: NUMERO/ANO (ex: 123456/2026) — validado em duas partes
 // porque gepNumero e gepAno são colunas separadas no banco (id técnico é o uuid, não o GEP).
 const GEP_NUMERO_REGEX = /^\d+$/

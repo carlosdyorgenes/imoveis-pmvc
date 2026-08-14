@@ -144,6 +144,8 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
 
   const [showDescricao, setShowDescricao] = useState(false)
   const [showResumo, setShowResumo] = useState(false)
+  const [textoResumoIA, setTextoResumoIA] = useState('')
+  const [modoProsaIA, setModoProsaIA] = useState(false)
   const [showNovaAtividade, setShowNovaAtividade] = useState(false)
   const [novoTitulo, setNovoTitulo] = useState('')
   const [novaEquipe, setNovaEquipe] = useState('')
@@ -227,6 +229,12 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     mutationFn: (atividadeId: string) => api.delete(`/api/demandas/atividades/${atividadeId}`),
     onSuccess: () => { invalidar(); setAtividadeAberta(null); toast.success('Atividade excluída') },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao excluir atividade'))
+  })
+
+  const gerarResumoIA = useMutation({
+    mutationFn: (texto: string) => api.post(`/api/demandas/${id}/resumo-formal`, { texto }).then(r => r.data.texto as string),
+    onSuccess: (texto) => { setTextoResumoIA(texto); setModoProsaIA(true) },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao gerar texto com IA'))
   })
 
   const createAtividade = useMutation({
@@ -1355,25 +1363,56 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between p-5 border-b border-gray-100">
-              <h3 className="font-semibold text-gray-800 flex items-center gap-1.5">
-                <FileText className="w-4 h-4" /> Resumo da demanda
-              </h3>
-              <button onClick={() => setShowResumo(false)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+              <div>
+                <h3 className="font-semibold text-gray-800 flex items-center gap-1.5">
+                  <FileText className="w-4 h-4" /> Resumo da demanda
+                </h3>
+                {modoProsaIA && (
+                  <p className="text-[11px] text-gray-400 mt-0.5">Versão em prosa gerada por IA — confira antes de usar oficialmente.</p>
+                )}
+              </div>
+              <button onClick={() => { setShowResumo(false); setModoProsaIA(false); setTextoResumoIA('') }} className="p-1.5 hover:bg-gray-100 rounded-lg">
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
             <div className="p-5 overflow-y-auto flex-1">
-              <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans bg-gray-50 rounded-lg p-4 border border-gray-200">
-                {gerarResumoDemanda(demanda, user?.name || 'Master')}
-              </pre>
+              {gerarResumoIA.isPending ? (
+                <div className="text-center py-10 text-sm text-gray-400">Gerando versão em prosa com IA...</div>
+              ) : (
+                <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  {modoProsaIA ? textoResumoIA : gerarResumoDemanda(demanda, user?.name || 'Master')}
+                </pre>
+              )}
             </div>
-            <div className="flex gap-3 p-5 border-t border-gray-100">
-              <button onClick={() => setShowResumo(false)} className="btn-secondary flex-1 justify-center">Fechar</button>
+            <div className="flex flex-wrap gap-2 p-5 border-t border-gray-100">
+              <button onClick={() => { setShowResumo(false); setModoProsaIA(false); setTextoResumoIA('') }} className="btn-secondary flex-1 justify-center">Fechar</button>
+              {modoProsaIA ? (
+                <>
+                  <button onClick={() => setModoProsaIA(false)} className="btn-secondary flex-1 justify-center">Ver estruturado</button>
+                  <button
+                    onClick={() => gerarResumoIA.mutate(gerarResumoDemanda(demanda, user?.name || 'Master'))}
+                    disabled={gerarResumoIA.isPending}
+                    className="btn-secondary flex-1 justify-center"
+                  >
+                    Gerar novamente
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => gerarResumoIA.mutate(gerarResumoDemanda(demanda, user?.name || 'Master'))}
+                  disabled={gerarResumoIA.isPending}
+                  className="btn-secondary flex-1 justify-center"
+                >
+                  Deixar em prosa (IA)
+                </button>
+              )}
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(gerarResumoDemanda(demanda, user?.name || 'Master'))
+                  const texto = modoProsaIA ? textoResumoIA : gerarResumoDemanda(demanda, user?.name || 'Master')
+                  navigator.clipboard.writeText(texto)
                   toast.success('Resumo copiado para a área de transferência')
                 }}
+                disabled={gerarResumoIA.isPending}
                 className="btn-primary flex-1 justify-center"
               >
                 Copiar texto
