@@ -13,6 +13,11 @@ import { useAuth } from '@/hooks/useAuth'
 
 const errMsg = (err: any, fallback: string) => err?.response?.data?.error || fallback
 
+// Anexo por link do Google Drive (campos "Nome do documento" e "link do Google Drive") está
+// fora de uso no momento — oculto na tela sem remover o código/mutation, pra reativar rápido
+// se precisar de novo.
+const ANEXAR_LINK_DRIVE_VISIVEL = false
+
 const STATUS_ATIV_LABEL: Record<StatusAtividade, string> = {
   ATRIBUIDA: 'Atribuída',
   EM_ANDAMENTO: 'Em andamento',
@@ -785,7 +790,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   <StickyNote className="w-3.5 h-3.5" /> Observações
                 </p>
                 <textarea
-                  className="input text-sm min-h-20 resize-none"
+                  className="input text-sm min-h-40 resize-y"
                   placeholder="Registre aqui qualquer informação pertinente sobre esta atividade..."
                   value={observacoesTexto}
                   onChange={e => setObservacoesTexto(e.target.value)}
@@ -808,17 +813,23 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 </p>
                 {podeAnexarDocumento(atividadeModal) && (
                   <div className="space-y-2 mb-2">
-                    <input className="input text-sm" placeholder="Nome do documento (ex: Planta, Memorial...)" value={novoDocNome} onChange={e => setNovoDocNome(e.target.value)} />
-                    <div className="flex gap-2">
-                      <input className="input text-sm flex-1" placeholder="ou link do Google Drive" value={novoDocLink} onChange={e => setNovoDocLink(e.target.value)} />
-                      <button
-                        onClick={() => novoDocNome.trim() && novoDocLink.trim() && addDocumento.mutate(atividadeModal.id)}
-                        disabled={!novoDocNome.trim() || !novoDocLink.trim()}
-                        className="btn-secondary text-xs whitespace-nowrap"
-                      >
-                        Anexar link
-                      </button>
-                    </div>
+                    {/* Anexo por link do Google Drive: oculto a pedido (não está em uso no momento),
+                        mantido no código pra reativar facilmente depois — só mudar ANEXAR_LINK_DRIVE_VISIVEL. */}
+                    {ANEXAR_LINK_DRIVE_VISIVEL && (
+                      <>
+                        <input className="input text-sm" placeholder="Nome do documento (ex: Planta, Memorial...)" value={novoDocNome} onChange={e => setNovoDocNome(e.target.value)} />
+                        <div className="flex gap-2">
+                          <input className="input text-sm flex-1" placeholder="ou link do Google Drive" value={novoDocLink} onChange={e => setNovoDocLink(e.target.value)} />
+                          <button
+                            onClick={() => novoDocNome.trim() && novoDocLink.trim() && addDocumento.mutate(atividadeModal.id)}
+                            disabled={!novoDocNome.trim() || !novoDocLink.trim()}
+                            className="btn-secondary text-xs whitespace-nowrap"
+                          >
+                            Anexar link
+                          </button>
+                        </div>
+                      </>
+                    )}
                     <label className="btn-primary text-xs w-full justify-center cursor-pointer">
                       <Plus className="w-3.5 h-3.5" /> Enviar arquivo (PDF, DOC, XLS, imagem, DWG...)
                       <input
