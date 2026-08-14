@@ -406,7 +406,14 @@ demandasRouter.post('/:id/resumo-formal', requireMaster, async (req: AuthRequest
   }
 
   if (!resposta.ok) {
-    throw new AppError(`Serviço de IA retornou erro (${resposta.status}). Tente novamente.`, 502)
+    // Repassa o motivo real (ex.: "invalid x-api-key") pra facilitar diagnóstico — endpoint
+    // restrito ao Master, então não há problema em expor o detalhe do erro da API upstream.
+    let detalhe = ''
+    try {
+      const corpoErro = await resposta.json() as { error?: { message?: string } }
+      detalhe = corpoErro?.error?.message || ''
+    } catch { /* corpo não era JSON válido */ }
+    throw new AppError(`Serviço de IA retornou erro (${resposta.status})${detalhe ? `: ${detalhe}` : ''}`, 502)
   }
 
   const data = await resposta.json() as { content?: { type: string; text?: string }[] }
