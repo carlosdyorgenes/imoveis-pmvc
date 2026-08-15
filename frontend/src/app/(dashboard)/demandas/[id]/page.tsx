@@ -144,6 +144,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
 
   const [showDescricao, setShowDescricao] = useState(false)
   const [showResumo, setShowResumo] = useState(false)
+  const [atualizandoResumo, setAtualizandoResumo] = useState(false)
   const [textoResumoIA, setTextoResumoIA] = useState('')
   const [modoProsaIA, setModoProsaIA] = useState(false)
   const [showNovaAtividade, setShowNovaAtividade] = useState(false)
@@ -196,7 +197,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [pDescricaoEdicao, setPDescricaoEdicao] = useState('')
   const [pProtocoloEdicao, setPProtocoloEdicao] = useState('')
 
-  const { data: demanda, isLoading, isError, error: demandaError } = useQuery<Demanda>({
+  const { data: demanda, isLoading, isError, error: demandaError, refetch: refetchDemanda } = useQuery<Demanda>({
     queryKey: ['demanda', id],
     queryFn: () => api.get(`/api/demandas/${id}`).then(r => r.data),
     // Sem retry: se a atividade foi transferida (ou o acesso mudou) desde a última vez que
@@ -491,8 +492,19 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
             <h2 className="font-semibold text-gray-800">Atividades</h2>
             <div className="flex gap-2">
               {isMaster && (
-                <button onClick={() => setShowResumo(true)} className="btn-secondary text-xs">
-                  <FileText className="w-3.5 h-3.5" /> Resumo da demanda
+                <button
+                  onClick={async () => {
+                    // Busca a demanda de novo antes de montar o resumo — sem isso, o texto
+                    // poderia refletir dados de quando a página foi carregada, não o estado
+                    // real das atividades no momento em que o Master pede o resumo.
+                    setAtualizandoResumo(true)
+                    try { await refetchDemanda() } finally { setAtualizandoResumo(false) }
+                    setShowResumo(true)
+                  }}
+                  disabled={atualizandoResumo}
+                  className="btn-secondary text-xs"
+                >
+                  <FileText className="w-3.5 h-3.5" /> {atualizandoResumo ? 'Atualizando...' : 'Resumo da demanda'}
                 </button>
               )}
               {(isMaster || demanda.solicitante.id === user?.id) && (
@@ -1390,7 +1402,12 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 <>
                   <button onClick={() => setModoProsaIA(false)} className="btn-secondary flex-1 justify-center">Ver estruturado</button>
                   <button
-                    onClick={() => gerarResumoIA.mutate(gerarResumoDemanda(demanda, user?.name || 'Master'))}
+                    onClick={async () => {
+                      // Reconfirma os dados antes de mandar pra IA — o modal pode ter ficado
+                      // aberto um tempo e alguma atividade pode ter mudado nesse meio-tempo.
+                      const atualizada = await refetchDemanda()
+                      if (atualizada.data) gerarResumoIA.mutate(gerarResumoDemanda(atualizada.data, user?.name || 'Master'))
+                    }}
                     disabled={gerarResumoIA.isPending}
                     className="btn-secondary flex-1 justify-center"
                   >
@@ -1399,7 +1416,10 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 </>
               ) : (
                 <button
-                  onClick={() => gerarResumoIA.mutate(gerarResumoDemanda(demanda, user?.name || 'Master'))}
+                  onClick={async () => {
+                    const atualizada = await refetchDemanda()
+                    if (atualizada.data) gerarResumoIA.mutate(gerarResumoDemanda(atualizada.data, user?.name || 'Master'))
+                  }}
                   disabled={gerarResumoIA.isPending}
                   className="btn-secondary flex-1 justify-center"
                 >
