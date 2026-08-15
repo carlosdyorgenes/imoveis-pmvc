@@ -5,7 +5,7 @@ import Underline from '@tiptap/extension-underline'
 import { TextStyle } from '@tiptap/extension-text-style'
 import TextAlign from '@tiptap/extension-text-align'
 import Placeholder from '@tiptap/extension-placeholder'
-import { Bold, Italic, Underline as UnderlineIcon, AlignLeft, AlignCenter, AlignRight, AlignJustify } from 'lucide-react'
+import { Bold, Italic, Underline as UnderlineIcon, AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered } from 'lucide-react'
 import { useEffect } from 'react'
 
 // Tiptap não distribui uma extensão oficial de tamanho de fonte — só um pacote pra
@@ -93,7 +93,7 @@ export function RichTextEditor({ value, onChange, disabled, placeholder }: Props
     onUpdate: ({ editor }: { editor: Editor }) => onChange(editor.getHTML()),
     editorProps: {
       attributes: {
-        class: 'text-sm text-gray-800 min-h-32 px-3 py-2 focus:outline-none [&_p]:my-1',
+        class: 'text-sm text-gray-800 min-h-32 px-3 py-2 focus:outline-none [&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5',
       },
     },
   })
@@ -142,6 +142,13 @@ export function RichTextEditor({ value, onChange, disabled, placeholder }: Props
           </BotaoBarra>
           <BotaoBarra title="Justificar" ativo={editor.isActive({ textAlign: 'justify' })} onClick={() => editor.chain().focus().setTextAlign('justify').run()}>
             <AlignJustify className="w-3.5 h-3.5" />
+          </BotaoBarra>
+          <div className="w-px h-4 bg-gray-300 mx-1" />
+          <BotaoBarra title="Marcadores" ativo={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}>
+            <List className="w-3.5 h-3.5" />
+          </BotaoBarra>
+          <BotaoBarra title="Lista numerada" ativo={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
+            <ListOrdered className="w-3.5 h-3.5" />
           </BotaoBarra>
           <div className="w-px h-4 bg-gray-300 mx-1" />
           <select
