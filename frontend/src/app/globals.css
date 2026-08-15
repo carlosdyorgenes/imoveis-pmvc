@@ -40,3 +40,14 @@
     @apply inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-lime-100 text-lime-700;
   }
 }
+
+/* Placeholder do editor de texto rico (Tiptap) — exigido pela extensão Placeholder:
+   ela marca o primeiro parágrafo vazio com essa classe e o texto some assim que o
+   usuário digita algo. */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: theme('colors.gray.400');
+  pointer-events: none;
+  height: 0;
+}

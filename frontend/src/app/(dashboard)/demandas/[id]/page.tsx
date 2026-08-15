@@ -10,6 +10,14 @@ import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { useAuth } from '@/hooks/useAuth'
+import dynamic from 'next/dynamic'
+
+// Tiptap é pesado (~130kB) — carrega só quando o modal de atividade (que tem o campo de
+// observações) realmente abre, em vez de inflar o carregamento inicial desta página.
+const RichTextEditor = dynamic(() => import('@/components/RichTextEditor').then(m => m.RichTextEditor), {
+  ssr: false,
+  loading: () => <div className="border border-gray-200 rounded-lg min-h-32 bg-gray-50 animate-pulse" />,
+})
 
 const errMsg = (err: any, fallback: string) => err?.response?.data?.error || fallback
 
@@ -66,6 +74,27 @@ const STATUS_DEMANDA_COLOR: Record<StatusDemanda, string> = {
   CANCELADA: 'bg-red-100 text-red-700',
 }
 
+// Observações agora são digitadas no editor de texto rico e ficam salvas como HTML — pro
+// resumo estruturado (texto puro, base do que vai pra IA) precisamos só do conteúdo legível,
+// sem as tags de formatação.
+function htmlParaTexto(html: string): string {
+  return html
+    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+}
+
 // Monta um texto formal, pronto pra reportar, com a situação atual de cada atividade da
 // demanda — usado pelo botão "Resumo da demanda" (Master). Determinístico: não usa IA, só
 // formata os dados já carregados, então o texto é sempre consistente com o que está na tela.
@@ -109,8 +138,9 @@ function gerarResumoDemanda(demanda: Demanda, autor: string): string {
     if (a.status === 'DEVOLVIDA' && a.motivoDevolucao) {
       linhas.push(`   Motivo da devolução: ${a.motivoDevolucao}`)
     }
-    if (a.observacoes?.trim()) {
-      linhas.push(`   Observações: ${a.observacoes.trim()}`)
+    const observacoesTexto = a.observacoes ? htmlParaTexto(a.observacoes) : ''
+    if (observacoesTexto) {
+      linhas.push(`   Observações: ${observacoesTexto}`)
     }
     linhas.push('')
   })
@@ -881,12 +911,11 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1.5">
                   <StickyNote className="w-3.5 h-3.5" /> Observações
                 </p>
-                <textarea
-                  className="input text-sm min-h-40 resize-y"
-                  placeholder="Registre aqui qualquer informação pertinente sobre esta atividade..."
+                <RichTextEditor
                   value={observacoesTexto}
-                  onChange={e => setObservacoesTexto(e.target.value)}
+                  onChange={setObservacoesTexto}
                   disabled={!podeEditarCampos(atividadeModal)}
+                  placeholder="Registre aqui qualquer informação pertinente sobre esta atividade..."
                 />
                 {podeEditarCampos(atividadeModal) && (
                   <button
