@@ -66,6 +66,29 @@ const STATUS_DEMANDA_COLOR: Record<StatusDemanda, string> = {
   CANCELADA: 'bg-red-100 text-red-700',
 }
 
+// "Assinatura" só do que muda o conteúdo do resumo (status/prazo/prioridade/observações das
+// atividades + pendências externas em aberto) — usada para detectar se algo mudou desde a
+// última vez que o Master abriu o resumo desta demanda, sem depender de datas/tempos de
+// espera (que mudam sozinhos a cada minuto e gerariam falso positivo de "houve atualização").
+function assinaturaAtividades(demanda: Demanda): string {
+  const atividades = demanda.atividades
+    .filter(a => a.status !== 'CANCELADA')
+    .map(a => ({
+      id: a.id,
+      status: a.status,
+      prazo: a.prazo || null,
+      prioridade: a.prioridade,
+      observacoes: a.observacoes?.trim() || '',
+      motivoDevolucao: a.motivoDevolucao || '',
+      pendencias: (demanda.pendenciasExternas || [])
+        .filter(p => p.atividadeId === a.id && p.status !== 'RESPONDIDA')
+        .map(p => `${p.orgao}:${p.descricao}`)
+        .sort(),
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id))
+  return JSON.stringify({ status: demanda.status, atividades })
+}
+
 // Monta um texto formal, pronto pra reportar, com a situação atual de cada atividade da
 // demanda — usado pelo botão "Resumo da demanda" (Master). Determinístico: não usa IA, só
 // formata os dados já carregados, então o texto é sempre consistente com o que está na tela.
@@ -145,6 +168,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [showDescricao, setShowDescricao] = useState(false)
   const [showResumo, setShowResumo] = useState(false)
   const [atualizandoResumo, setAtualizandoResumo] = useState(false)
+  const [comparacaoResumo, setComparacaoResumo] = useState<'houve' | 'nao-houve' | 'primeira' | null>(null)
   const [textoResumoIA, setTextoResumoIA] = useState('')
   const [modoProsaIA, setModoProsaIA] = useState(false)
   const [showNovaAtividade, setShowNovaAtividade] = useState(false)
@@ -498,7 +522,21 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                     // poderia refletir dados de quando a página foi carregada, não o estado
                     // real das atividades no momento em que o Master pede o resumo.
                     setAtualizandoResumo(true)
-                    try { await refetchDemanda() } finally { setAtualizandoResumo(false) }
+                    let dadosAtuais: Demanda | undefined
+                    try {
+                      dadosAtuais = (await refetchDemanda()).data
+                    } finally {
+                      setAtualizandoResumo(false)
+                    }
+                    if (dadosAtuais) {
+                      const chave = `resumo-assinatura-${dadosAtuais.id}`
+                      const assinaturaAnterior = localStorage.getItem(chave)
+                      const assinaturaAtual = assinaturaAtividades(dadosAtuais)
+                      setComparacaoResumo(
+                        assinaturaAnterior === null ? 'primeira' : assinaturaAnterior === assinaturaAtual ? 'nao-houve' : 'houve'
+                      )
+                      localStorage.setItem(chave, assinaturaAtual)
+                    }
                     setShowResumo(true)
                   }}
                   disabled={atualizandoResumo}
@@ -1379,11 +1417,24 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 <h3 className="font-semibold text-gray-800 flex items-center gap-1.5">
                   <FileText className="w-4 h-4" /> Resumo da demanda
                 </h3>
+                {comparacaoResumo === 'houve' && (
+                  <p className="text-xs text-emerald-600 font-medium mt-0.5">
+                    Houve atualização nas atividades desde a última consulta.
+                  </p>
+                )}
+                {comparacaoResumo === 'nao-houve' && (
+                  <p className="text-xs text-red-600 font-medium mt-0.5">
+                    Não houve atualização nas atividades desde a última consulta — considere não gerar a versão em prosa (IA) pra evitar gasto desnecessário.
+                  </p>
+                )}
+                {comparacaoResumo === 'primeira' && (
+                  <p className="text-xs text-gray-400 mt-0.5">Primeira consulta desta demanda — sem base anterior para comparar.</p>
+                )}
                 {modoProsaIA && (
                   <p className="text-[11px] text-gray-400 mt-0.5">Versão em prosa gerada por IA — confira antes de usar oficialmente.</p>
                 )}
               </div>
-              <button onClick={() => { setShowResumo(false); setModoProsaIA(false); setTextoResumoIA('') }} className="p-1.5 hover:bg-gray-100 rounded-lg">
+              <button onClick={() => { setShowResumo(false); setModoProsaIA(false); setTextoResumoIA(''); setComparacaoResumo(null)}} className="p-1.5 hover:bg-gray-100 rounded-lg">
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
@@ -1397,7 +1448,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               )}
             </div>
             <div className="flex flex-wrap gap-2 p-5 border-t border-gray-100">
-              <button onClick={() => { setShowResumo(false); setModoProsaIA(false); setTextoResumoIA('') }} className="btn-secondary flex-1 justify-center">Fechar</button>
+              <button onClick={() => { setShowResumo(false); setModoProsaIA(false); setTextoResumoIA(''); setComparacaoResumo(null)}} className="btn-secondary flex-1 justify-center">Fechar</button>
               {modoProsaIA ? (
                 <>
                   <button onClick={() => setModoProsaIA(false)} className="btn-secondary flex-1 justify-center">Ver estruturado</button>
