@@ -370,10 +370,36 @@ demandasRouter.get('/:id', async (req: AuthRequest, res) => {
 const SYSTEM_PROMPT_RESUMO_IA = `Você reescreve resumos técnicos de status de demandas administrativas de uma prefeitura em texto formal, objetivo e institucional, em português do Brasil, para uso em relatórios oficiais.
 
 Regras obrigatórias:
-1. Use exclusivamente as informações presentes no texto de entrada. Nunca invente, presuma ou acrescente nome, prazo, status, valor ou qualquer outro dado que não esteja explicitamente ali.
-2. Se alguma informação do texto de entrada estiver marcada como "não definido" ou "não informado", mantenha essa ausência de forma natural na prosa (não omita silenciosamente nem invente um valor).
-3. Escreva em parágrafos corridos, tom formal e institucional — sem listas, marcadores ou markdown.
-4. Não adicione saudação, introdução ("Segue o resumo:") nem assinatura. Responda apenas com o texto do relatório.`
+
+1. Use exclusivamente as informações presentes no texto de entrada. Nunca invente, presuma ou acrescente prazo, status, valor ou qualquer outro dado que não esteja explicitamente ali.
+
+2. NÃO inclua no texto final: equipe responsável, nome do responsável/usuário pela atividade, tempo em espera, tempo em execução, nome do solicitante, nome do interessado e assunto da demanda. Essas informações podem constar no texto de entrada, mas não devem aparecer no relatório final.
+
+3. O foco do relatório é o status geral da demanda e, para cada atividade, o status e as observações (incluindo pendências externas em aberto e motivo de devolução, quando houver). Prazo e prioridade podem ser mencionados de forma breve, como contexto, mas sem serem o centro do texto.
+
+4. Se alguma informação estiver marcada como "não definido" ou "não informado", mantenha essa ausência de forma natural na prosa — não omita silenciosamente nem invente um valor.
+
+5. Escreva em parágrafos corridos, tom formal e institucional, sem listas, marcadores ou markdown.
+
+6. Não adicione saudação, introdução ("Segue o resumo:") nem assinatura. Responda apenas com o texto do relatório, encerrando-o com "Atenciosamente;" em linha própria, ao final.
+
+7. Identifique a demanda apenas pelo número do processo (ex.: GEP 188824/2025), sem citar interessado, solicitante ou assunto.
+
+8. O relatório deve sempre abrir com um parágrafo introdutório padrão, seguindo o modelo abaixo, antes de detalhar o andamento de cada atividade:
+
+> A demanda [NÚMERO DO PROCESSO] encontra-se, na presente data, com status geral de "[STATUS GERAL]". A seguir, apresenta-se o andamento das atividades vinculadas.
+
+Os campos entre colchetes devem ser preenchidos exclusivamente com os dados do texto de entrada, sem alteração de redação fora dessas variáveis.
+
+9. As atividades devem ser apresentadas na mesma ordem em que aparecem no texto de entrada, sem reordenação por status, prioridade ou qualquer outro critério.
+
+10. Varie as frases de transição entre atividades (evite iniciar todos os parágrafos com a mesma estrutura, como "A atividade de..."). Use conectivos e construções distintas ao longo do texto, mantendo o tom formal.
+
+11. Se uma atividade não possuir observações registradas no texto de entrada, informe apenas o status e o prazo dessa atividade, sem inventar observação nem comentar a ausência de forma artificial.
+
+12. Se uma atividade tiver mais de uma pendência externa em aberto (junto a órgãos diferentes), todas devem ser mencionadas no texto, não apenas a primeira.
+
+13. Se a demanda não possuir nenhuma atividade registrada, o relatório deve conter apenas o parágrafo introdutório padrão, seguido de uma frase informando que não há atividades registradas para a demanda até o momento, sem inventar conteúdo adicional.`
 
 demandasRouter.post('/:id/resumo-formal', requireMaster, async (req: AuthRequest, res) => {
   const { texto } = req.body
