@@ -66,29 +66,6 @@ const STATUS_DEMANDA_COLOR: Record<StatusDemanda, string> = {
   CANCELADA: 'bg-red-100 text-red-700',
 }
 
-// "Assinatura" só do que muda o conteúdo do resumo (status/prazo/prioridade/observações das
-// atividades + pendências externas em aberto) — usada para detectar se algo mudou desde a
-// última vez que o Master abriu o resumo desta demanda, sem depender de datas/tempos de
-// espera (que mudam sozinhos a cada minuto e gerariam falso positivo de "houve atualização").
-function assinaturaAtividades(demanda: Demanda): string {
-  const atividades = demanda.atividades
-    .filter(a => a.status !== 'CANCELADA')
-    .map(a => ({
-      id: a.id,
-      status: a.status,
-      prazo: a.prazo || null,
-      prioridade: a.prioridade,
-      observacoes: a.observacoes?.trim() || '',
-      motivoDevolucao: a.motivoDevolucao || '',
-      pendencias: (demanda.pendenciasExternas || [])
-        .filter(p => p.atividadeId === a.id && p.status !== 'RESPONDIDA')
-        .map(p => `${p.orgao}:${p.descricao}`)
-        .sort(),
-    }))
-    .sort((a, b) => a.id.localeCompare(b.id))
-  return JSON.stringify({ status: demanda.status, atividades })
-}
-
 // Monta um texto formal, pronto pra reportar, com a situação atual de cada atividade da
 // demanda — usado pelo botão "Resumo da demanda" (Master). Determinístico: não usa IA, só
 // formata os dados já carregados, então o texto é sempre consistente com o que está na tela.
@@ -522,20 +499,15 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                     // poderia refletir dados de quando a página foi carregada, não o estado
                     // real das atividades no momento em que o Master pede o resumo.
                     setAtualizandoResumo(true)
-                    let dadosAtuais: Demanda | undefined
                     try {
-                      dadosAtuais = (await refetchDemanda()).data
+                      await refetchDemanda()
+                      // Comparação calculada e guardada no servidor (por usuário + demanda),
+                      // não no navegador — assim funciona igual em qualquer computador que o
+                      // Master use, não só no dispositivo onde consultou da última vez.
+                      const res = await api.post(`/api/demandas/${id}/resumo-consulta`)
+                      setComparacaoResumo(res.data.comparacao)
                     } finally {
                       setAtualizandoResumo(false)
-                    }
-                    if (dadosAtuais) {
-                      const chave = `resumo-assinatura-${dadosAtuais.id}`
-                      const assinaturaAnterior = localStorage.getItem(chave)
-                      const assinaturaAtual = assinaturaAtividades(dadosAtuais)
-                      setComparacaoResumo(
-                        assinaturaAnterior === null ? 'primeira' : assinaturaAnterior === assinaturaAtual ? 'nao-houve' : 'houve'
-                      )
-                      localStorage.setItem(chave, assinaturaAtual)
                     }
                     setShowResumo(true)
                   }}

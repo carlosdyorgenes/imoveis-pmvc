@@ -401,6 +401,58 @@ Os campos entre colchetes devem ser preenchidos exclusivamente com os dados do t
 
 13. Se a demanda não possuir nenhuma atividade registrada, o relatório deve conter apenas o parágrafo introdutório padrão, seguido de uma frase informando que não há atividades registradas para a demanda até o momento, sem inventar conteúdo adicional.`
 
+// "Assinatura" só do que muda o conteúdo do resumo (status/prazo/prioridade/observações das
+// atividades + pendências externas em aberto) — usada pra detectar se algo mudou desde a
+// última vez que o Master consultou o resumo desta demanda. Calculada no servidor (não no
+// navegador) e guardada por usuário+demanda em ResumoConsulta, pra funcionar igual em
+// qualquer computador/navegador que o Master use. Tempos de espera/execução ficam de fora de
+// propósito — mudam sozinhos a cada minuto e dariam falso positivo de "houve atualização".
+function assinaturaAtividadesServidor(demanda: {
+  status: string
+  atividades: { id: string; status: string; prazo: Date | null; prioridade: string; observacoes: string | null; motivoDevolucao: string | null }[]
+  pendenciasExternas: { atividadeId: string | null; orgao: string; descricao: string; status: string }[]
+}): string {
+  const atividades = demanda.atividades
+    .filter(a => a.status !== 'CANCELADA')
+    .map(a => ({
+      id: a.id,
+      status: a.status,
+      prazo: a.prazo ? a.prazo.toISOString() : null,
+      prioridade: a.prioridade,
+      observacoes: (a.observacoes || '').trim(),
+      motivoDevolucao: a.motivoDevolucao || '',
+      pendencias: demanda.pendenciasExternas
+        .filter(p => p.atividadeId === a.id && p.status !== 'RESPONDIDA')
+        .map(p => `${p.orgao}:${p.descricao}`)
+        .sort(),
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id))
+  return JSON.stringify({ status: demanda.status, atividades })
+}
+
+demandasRouter.post('/:id/resumo-consulta', requireMaster, async (req: AuthRequest, res) => {
+  const demanda = await prisma.demanda.findUnique({
+    where: { id: req.params.id },
+    include: { atividades: true, pendenciasExternas: true },
+  })
+  if (!demanda) throw new AppError('Demanda não encontrada', 404)
+
+  const uid = req.user!.id
+  const assinaturaAtual = assinaturaAtividadesServidor(demanda)
+  const anterior = await prisma.resumoConsulta.findUnique({
+    where: { demandaId_userId: { demandaId: demanda.id, userId: uid } },
+  })
+
+  await prisma.resumoConsulta.upsert({
+    where: { demandaId_userId: { demandaId: demanda.id, userId: uid } },
+    create: { demandaId: demanda.id, userId: uid, assinatura: assinaturaAtual },
+    update: { assinatura: assinaturaAtual },
+  })
+
+  const comparacao = !anterior ? 'primeira' : anterior.assinatura === assinaturaAtual ? 'nao-houve' : 'houve'
+  res.json({ comparacao })
+})
+
 demandasRouter.post('/:id/resumo-formal', requireMaster, async (req: AuthRequest, res) => {
   const { texto } = req.body
   if (!texto?.trim()) throw new AppError('Informe o texto a ser reescrito')

@@ -62,6 +62,7 @@ model User {
   comentarios            Comentario[]
   transferenciasOrigem   HistoricoTransferencia[] @relation("TransferenciaDe")
   transferenciasDestino  HistoricoTransferencia[] @relation("TransferenciaPara")
+  resumosConsultados     ResumoConsulta[]
 
   @@map("users")
 }
@@ -169,9 +170,27 @@ model Demanda {
   historico          HistoricoDemanda[]
   pendenciasExternas PendenciaExterna[]
   comentarios        Comentario[]
+  resumosConsultados ResumoConsulta[]
 
   @@index([gepNumero, gepAno])
   @@map("demandas")
+}
+
+// Guarda, por usuário e por demanda, uma "assinatura" do estado das atividades na última vez
+// que o Master abriu o Resumo da demanda — permite avisar se algo mudou desde então mesmo
+// trocando de computador/navegador (antes isso ficava só no localStorage do dispositivo).
+model ResumoConsulta {
+  id          String   @id @default(uuid())
+  demandaId   String
+  userId      String
+  assinatura  String
+  atualizadoEm DateTime @updatedAt
+
+  demanda Demanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([demandaId, userId])
+  @@map("resumo_consultas")
 }
 
 // Atividade é atribuída a um usuário OU a uma equipe (qualquer membro da equipe pode agir).
