@@ -18,8 +18,8 @@ describe('isResponsavelOuEquipeDaAtividade', () => {
     expect(isResponsavelOuEquipeDaAtividade({ responsavelId: 'u1', equipeId: null }, 'u2', [])).toBe(false)
   })
 
-  it('nega para um colega da MESMA equipe quando já existe um responsável específico — só quem foi escolhido vê', () => {
-    expect(isResponsavelOuEquipeDaAtividade({ responsavelId: 'u1', equipeId: 'eq1' }, 'u2', ['eq1'])).toBe(false)
+  it('reconhece um colega da MESMA equipe mesmo quando já existe um responsável específico — visibilidade é por equipe, não só por quem foi escolhido', () => {
+    expect(isResponsavelOuEquipeDaAtividade({ responsavelId: 'u1', equipeId: 'eq1' }, 'u2', ['eq1'])).toBe(true)
   })
 })
 
@@ -35,8 +35,13 @@ describe('filtrarAtividadesVisiveis — isolamento entre áreas', () => {
     expect(r.map(a => a.id)).toEqual(['a1', 'a2', 'a3'])
   })
 
-  it('usuário de uma área só vê a própria atividade — as outras áreas ficam ocultas', () => {
+  it('usuário de uma área só vê as atividades da própria equipe — as outras áreas ficam ocultas', () => {
     const r = filtrarAtividadesVisiveis(atividades, 'jur1', ['juridico'], false)
+    expect(r.map(a => a.id)).toEqual(['a1'])
+  })
+
+  it('colega da mesma equipe vê a atividade mesmo não sendo o responsável direto', () => {
+    const r = filtrarAtividadesVisiveis(atividades, 'jur2', ['juridico'], false)
     expect(r.map(a => a.id)).toEqual(['a1'])
   })
 

@@ -63,14 +63,14 @@ function BadgePrioridade({ prioridade }: { prioridade: Prioridade }) {
 // setor cuja atividade já foi aprovada, sem nenhuma pendência nova atribuída a ele, deve ver
 // a demanda como Concluída do ponto de vista dele — mesmo que ela ainda esteja em andamento
 // em outro setor (ex.: uma nova atividade foi criada para o Jurídico depois que a Engenharia
-// já tinha concluído a parte dela). Usa o mesmo critério de "envolvido" da visibilidade
-// individual: responsável direto, ou fallback por equipe só quando não há responsável definido.
+// já tinha concluído a parte dela). Usa o mesmo critério de "envolvido" da visibilidade por
+// equipe: responsável direto OU qualquer atividade da(s) equipe(s) do usuário.
 function statusPercebido(d: Demanda, isMaster: boolean, userId: string | undefined, equipes: Equipe[]): StatusDemanda {
   if (isMaster || !userId) return d.status
   if (['CONCLUIDA', 'CANCELADA'].includes(d.status)) return d.status
   const minhasEquipeIds = equipes.filter(e => e.membros.some(m => m.user.id === userId)).map(e => e.id)
   const minhasAtividades = (d.atividades || []).filter((a: any) =>
-    a.responsavelId === userId || (!a.responsavelId && a.equipe && minhasEquipeIds.includes(a.equipe.id))
+    a.responsavelId === userId || (a.equipe && minhasEquipeIds.includes(a.equipe.id))
   )
   if (minhasAtividades.length === 0) return d.status
   const meuSetorConcluido = minhasAtividades.every((a: any) => ['APROVADA', 'CANCELADA'].includes(a.status))

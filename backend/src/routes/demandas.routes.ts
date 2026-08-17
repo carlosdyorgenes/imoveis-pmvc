@@ -64,13 +64,12 @@ async function registrarHistorico(demandaId: string, userId: string, acao: strin
   await prisma.historicoDemanda.create({ data: { demandaId, userId, acao, descricao, atividadeId } })
 }
 
-// Verifica se o usuário é responsável direto ou membro da equipe atribuída à atividade
-// Só o responsável específico da atividade pode agir nela — um colega da mesma equipe que
-// não foi o escolhido pela distribuição automática não é "responsável" (precisa de
-// transferência explícita para assumir). O fallback por equipe só vale quando não há
-// responsável individual definido (caso raro, dado legado).
+// Verifica se o usuário é responsável direto OU membro da equipe atribuída à atividade —
+// qualquer colega da mesma equipe pode agir na atividade (iniciar, finalizar, mexer no
+// checklist/documentos, transferir), não só quem foi escolhido pela distribuição automática.
+// O isolamento estrito por indivíduo fica só na fila pessoal ("Minha Fila").
 async function isResponsavelDaAtividade(userId: string, atividade: { responsavelId: string | null; equipeId: string | null }) {
-  if (atividade.responsavelId) return atividade.responsavelId === userId
+  if (atividade.responsavelId === userId) return true
   if (atividade.equipeId) {
     const membro = await prisma.equipeMembro.findUnique({
       where: { equipeId_userId: { equipeId: atividade.equipeId, userId } },
@@ -299,14 +298,17 @@ demandasRouter.get('/', async (req: AuthRequest, res) => {
     where.atividades = { some: { OR: [{ responsavelId }, { equipe: { membros: { some: { userId: responsavelId } } } }] } }
   }
 
-  // Isolamento de processos: usuário PADRAO só lista demandas que ele abriu ou nas quais
-  // tem/teve uma atividade atribuída a ele ou à sua equipe — nunca a base inteira.
+  // Isolamento de processos: usuário PADRAO só lista demandas que ele abriu ou nas quais tem
+  // atividade atribuída a ele ou à sua equipe. Na listagem de Demandas, qualquer atividade da
+  // equipe conta (não só a que caiu especificamente pra esse usuário) — colegas de equipe
+  // acompanham e agem no que for do setor deles. Isso é diferente de "Minha Fila", que
+  // continua restrita ao que foi atribuído especificamente à pessoa.
   if (req.user!.role !== 'MASTER') {
     const equipeIds = await getEquipeIdsDoUsuario(req.user!.id)
     andConditions.push({
       OR: [
         { solicitanteId: req.user!.id },
-        { atividades: { some: { OR: [{ responsavelId: req.user!.id }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds }, responsavelId: null }] : [])] } } },
+        { atividades: { some: { OR: [{ responsavelId: req.user!.id }, ...(equipeIds.length ? [{ equipeId: { in: equipeIds } }] : [])] } } },
       ],
     })
   }
@@ -344,8 +346,9 @@ demandasRouter.get('/:id', async (req: AuthRequest, res) => {
   }
 
   // Quem abriu a demanda (ou o MASTER) precisa ver todas as atividades para distribuir/analisar.
-  // Um usuário de setor que só tem atividade(s) atribuída(s) enxerga apenas as suas — as demais
-  // áreas ficam ocultas, mesmo dentro da mesma demanda.
+  // Um usuário de setor enxerga as atividades da(s) equipe(s) dele — de qualquer colega, não só
+  // a que caiu especificamente pra ele — mas atividades de outras áreas continuam ocultas,
+  // mesmo dentro da mesma demanda.
   const atividadesVisiveis = filtrarAtividadesVisiveis(demanda.atividades, uid, equipeIds, vePorCompleto)
 
   const atividadesComTempos = atividadesVisiveis.map(a => ({

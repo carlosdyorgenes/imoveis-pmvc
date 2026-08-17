@@ -159,7 +159,7 @@ function statusPercebido(d: Demanda, isMaster: boolean, userId: string | undefin
   if (['CONCLUIDA', 'CANCELADA'].includes(d.status)) return d.status
   const minhasEquipeIds = equipes.filter(e => e.membros.some(m => m.user.id === userId)).map(e => e.id)
   const minhasAtividades = d.atividades.filter(a =>
-    a.responsavel?.id === userId || (!a.responsavel && a.equipe && minhasEquipeIds.includes(a.equipe.id))
+    a.responsavel?.id === userId || (a.equipe && minhasEquipeIds.includes(a.equipe.id))
   )
   if (minhasAtividades.length === 0) return d.status
   const meuSetorConcluido = minhasAtividades.every(a => ['APROVADA', 'CANCELADA'].includes(a.status))
@@ -459,9 +459,11 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   // Só o responsável específico atribuído pela distribuição automática age na atividade — um
   // colega da mesma equipe que não foi o escolhido não é "responsável" (equipe só entra como
   // fallback no caso raro de a atividade não ter nenhum responsável individual definido).
+  // Qualquer membro da mesma equipe pode agir na atividade, não só quem foi escolhido pela
+  // distribuição automática — mesma regra do backend (ver domain/visibilidade.ts).
   const isResponsavelUsuario = (a: Atividade) => a.responsavel?.id === user?.id
   const isMembroEquipe = (a: Atividade) => !!a.equipe && !!equipes.find(e => e.id === a.equipe!.id)?.membros.some(m => m.user.id === user?.id)
-  const isResponsavel = (a: Atividade) => (a.responsavel ? isResponsavelUsuario(a) : isMembroEquipe(a))
+  const isResponsavel = (a: Atividade) => isResponsavelUsuario(a) || isMembroEquipe(a)
   const isSolicitante = (a: Atividade) => a.solicitante.id === user?.id
   const podeGerenciarChecklist = (a: Atividade) => isMaster || isResponsavel(a) || isSolicitante(a)
   // Checklist, observações e documentos só ficam liberados depois que a atividade foi

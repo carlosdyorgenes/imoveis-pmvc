@@ -1,16 +1,17 @@
-// Isolamento entre usuários da mesma equipe: a distribuição automática (ver
-// domain/balanceamento.ts) sempre escolhe UM responsável específico — a partir daí, só essa
-// pessoa enxerga/age na atividade, mesmo os colegas de equipe dela não veem. equipeId continua
-// gravado (para o rótulo "Equipe: X" e para restringir a quem "Transferir tarefa" pode escolher),
-// mas só entra na conta de visibilidade no caso raro de a atividade não ter responsável definido
-// (ex.: dado legado). Quem abriu a demanda (solicitante) e o MASTER sempre veem tudo.
+// Visibilidade por equipe (não mais por indivíduo): a distribuição automática (ver
+// domain/balanceamento.ts) ainda escolhe UM responsável específico — usado pra saber de quem
+// é a "vez" de tocar a tarefa e pra quem a notificação de nova atividade vai — mas qualquer
+// membro da mesma equipe também enxerga e pode agir na atividade (tela "Demandas"). O
+// isolamento estrito por indivíduo continua só na fila pessoal ("Minha Fila"), que filtra por
+// responsavelId em vez de usar esta função. Quem abriu a demanda (solicitante) e o MASTER
+// sempre veem tudo.
 export interface AtividadeVisibilidade {
   responsavelId: string | null
   equipeId: string | null
 }
 
 export function isResponsavelOuEquipeDaAtividade(atividade: AtividadeVisibilidade, userId: string, equipeIds: string[]): boolean {
-  if (atividade.responsavelId) return atividade.responsavelId === userId
+  if (atividade.responsavelId === userId) return true
   return !!atividade.equipeId && equipeIds.includes(atividade.equipeId)
 }
 
