@@ -125,10 +125,44 @@ async function escalonarPrazosVencidos() {
   }
 }
 
+// Mesmo esquema "preguiçoso" de escalonarPrazosVencidos: sem cron, roda nas rotas mais
+// acessadas. Notifica quando o prazo esperado de uma pendência externa (resposta de outro
+// órgão/pessoa) chega, pra alguém ir verificar se já foi atendida — uma única vez por
+// pendência (campo notificacaoVencimentoEnviada, resetado se o prazo for reeditado).
+async function notificarPendenciasVencendo() {
+  const vencendo = await prisma.pendenciaExterna.findMany({
+    where: { prazoEsperado: { lte: new Date() }, status: { not: 'RESPONDIDA' }, notificacaoVencimentoEnviada: false },
+    include: {
+      atividade: { select: { id: true, titulo: true, responsavelId: true, equipeId: true, demandaId: true } },
+      demanda: { select: { id: true, gepNumero: true, gepAno: true, solicitanteId: true } },
+    },
+  })
+  if (vencendo.length === 0) return
+
+  for (const p of vencendo) {
+    const gep = `${p.demanda.gepNumero}/${p.demanda.gepAno}`
+    const mensagem = `Pendência externa junto a "${p.orgao}" venceu o prazo esperado (GEP ${gep}) — verifique se já foi respondida`
+    const destinatarios = new Set<string>([p.demanda.solicitanteId])
+    if (p.atividade) {
+      if (p.atividade.responsavelId) {
+        destinatarios.add(p.atividade.responsavelId)
+      } else if (p.atividade.equipeId) {
+        const membros = await prisma.equipeMembro.findMany({ where: { equipeId: p.atividade.equipeId } })
+        membros.forEach(m => destinatarios.add(m.userId))
+      }
+    }
+    for (const userId of destinatarios) {
+      await notificar(userId, 'PENDENCIA_VENCIDA', mensagem, { demandaId: p.demanda.id, atividadeId: p.atividade?.id })
+    }
+    await prisma.pendenciaExterna.update({ where: { id: p.id }, data: { notificacaoVencimentoEnviada: true } })
+  }
+}
+
 // ===== Painel de indicadores =====
 
 demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
   await escalonarPrazosVencidos()
+  await notificarPendenciasVencendo()
   const uid = req.user!.id
 
   const inicioMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
@@ -270,6 +304,7 @@ demandasRouter.get('/atividades/minhas', async (req: AuthRequest, res) => {
 
 demandasRouter.get('/', async (req: AuthRequest, res) => {
   await escalonarPrazosVencidos()
+  await notificarPendenciasVencendo()
   // "gep" é mantido por compatibilidade (busca só pelo número do GEP); "busca" é a busca
   // textual nova, que cobre GEP, assunto, descrição e interessado — pra achar a demanda por
   // do que ela trata quando não se lembra o número.
@@ -1193,7 +1228,10 @@ demandasRouter.put('/pendencias/:id', async (req: AuthRequest, res) => {
       ...(orgao !== undefined ? { orgao: orgao.trim() } : {}),
       ...(descricao !== undefined ? { descricao: descricao.trim() } : {}),
       ...(protocolo !== undefined ? { protocolo } : {}),
-      ...(prazoEsperado !== undefined ? { prazoEsperado: prazoEsperado ? new Date(prazoEsperado) : null } : {}),
+      ...(prazoEsperado !== undefined ? {
+        prazoEsperado: prazoEsperado ? new Date(prazoEsperado) : null,
+        notificacaoVencimentoEnviada: false,
+      } : {}),
       ...(status === 'COBRADA' ? { ultimaCobranca: new Date() } : {}),
     },
   })

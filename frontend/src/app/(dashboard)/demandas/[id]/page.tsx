@@ -228,11 +228,13 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [pOrgao, setPOrgao] = useState('')
   const [pDescricao, setPDescricao] = useState('')
   const [pProtocolo, setPProtocolo] = useState('')
+  const [pPrazoEsperado, setPPrazoEsperado] = useState('')
 
   const [pendenciaEditando, setPendenciaEditando] = useState<string | null>(null)
   const [pOrgaoEdicao, setPOrgaoEdicao] = useState('')
   const [pDescricaoEdicao, setPDescricaoEdicao] = useState('')
   const [pProtocoloEdicao, setPProtocoloEdicao] = useState('')
+  const [pPrazoEsperadoEdicao, setPPrazoEsperadoEdicao] = useState('')
 
   const { data: demanda, isLoading, isError, error: demandaError, refetch: refetchDemanda } = useQuery<Demanda>({
     queryKey: ['demanda', id],
@@ -423,8 +425,8 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   }
 
   const createPendencia = useMutation({
-    mutationFn: (atividadeId: string) => api.post(`/api/demandas/atividades/${atividadeId}/pendencias`, { orgao: pOrgao, descricao: pDescricao, protocolo: pProtocolo }),
-    onSuccess: () => { invalidar(); setShowPendencia(false); setPOrgao(''); setPDescricao(''); setPProtocolo(''); toast.success('Pendência externa registrada') },
+    mutationFn: (atividadeId: string) => api.post(`/api/demandas/atividades/${atividadeId}/pendencias`, { orgao: pOrgao, descricao: pDescricao, protocolo: pProtocolo, prazoEsperado: pPrazoEsperado || null }),
+    onSuccess: () => { invalidar(); setShowPendencia(false); setPOrgao(''); setPDescricao(''); setPProtocolo(''); setPPrazoEsperado(''); toast.success('Pendência externa registrada') },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao registrar pendência'))
   })
 
@@ -435,8 +437,8 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   })
 
   const editarPendencia = useMutation({
-    mutationFn: ({ id, orgao, descricao, protocolo }: { id: string; orgao: string; descricao: string; protocolo: string }) =>
-      api.put(`/api/demandas/pendencias/${id}`, { orgao, descricao, protocolo }),
+    mutationFn: ({ id, orgao, descricao, protocolo, prazoEsperado }: { id: string; orgao: string; descricao: string; protocolo: string; prazoEsperado: string }) =>
+      api.put(`/api/demandas/pendencias/${id}`, { orgao, descricao, protocolo, prazoEsperado: prazoEsperado || null }),
     onSuccess: () => { invalidar(); setPendenciaEditando(null); toast.success('Pendência atualizada') },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao editar pendência'))
   })
@@ -1067,6 +1069,11 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                       <label className="label">Protocolo (opcional)</label>
                       <input className="input" value={pProtocolo} onChange={e => setPProtocolo(e.target.value)} />
                     </div>
+                    <div>
+                      <label className="label">Prazo esperado de resposta (opcional)</label>
+                      <input type="date" className="input" value={pPrazoEsperado} onChange={e => setPPrazoEsperado(e.target.value)} />
+                      <p className="text-xs text-gray-400 mt-1">Você recebe uma notificação nessa data pra verificar se já foi respondida.</p>
+                    </div>
                     <div className="flex gap-2">
                       <button onClick={() => setShowPendencia(false)} className="btn-secondary flex-1 justify-center text-xs">Cancelar</button>
                       <button
@@ -1095,10 +1102,14 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                               <input className="input text-sm" placeholder="Órgão / Pessoa" value={pOrgaoEdicao} onChange={e => setPOrgaoEdicao(e.target.value)} autoFocus />
                               <textarea className="input text-sm min-h-16 resize-none" placeholder="Descrição" value={pDescricaoEdicao} onChange={e => setPDescricaoEdicao(e.target.value)} />
                               <input className="input text-sm" placeholder="Protocolo (opcional)" value={pProtocoloEdicao} onChange={e => setPProtocoloEdicao(e.target.value)} />
+                              <div>
+                                <label className="label">Prazo esperado de resposta (opcional)</label>
+                                <input type="date" className="input text-sm" value={pPrazoEsperadoEdicao} onChange={e => setPPrazoEsperadoEdicao(e.target.value)} />
+                              </div>
                               <div className="flex gap-2">
                                 <button onClick={() => setPendenciaEditando(null)} className="btn-secondary flex-1 justify-center text-xs">Cancelar</button>
                                 <button
-                                  onClick={() => pOrgaoEdicao.trim() && pDescricaoEdicao.trim() && editarPendencia.mutate({ id: p.id, orgao: pOrgaoEdicao.trim(), descricao: pDescricaoEdicao.trim(), protocolo: pProtocoloEdicao })}
+                                  onClick={() => pOrgaoEdicao.trim() && pDescricaoEdicao.trim() && editarPendencia.mutate({ id: p.id, orgao: pOrgaoEdicao.trim(), descricao: pDescricaoEdicao.trim(), protocolo: pProtocoloEdicao, prazoEsperado: pPrazoEsperadoEdicao })}
                                   disabled={!pOrgaoEdicao.trim() || !pDescricaoEdicao.trim() || editarPendencia.isPending}
                                   className="btn-primary flex-1 justify-center text-xs"
                                 >
@@ -1123,7 +1134,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                                 {podeGerenciarPendencia && (
                                   <>
                                     <button
-                                      onClick={() => { setPendenciaEditando(p.id); setPOrgaoEdicao(p.orgao); setPDescricaoEdicao(p.descricao); setPProtocoloEdicao(p.protocolo || '') }}
+                                      onClick={() => { setPendenciaEditando(p.id); setPOrgaoEdicao(p.orgao); setPDescricaoEdicao(p.descricao); setPProtocoloEdicao(p.protocolo || ''); setPPrazoEsperadoEdicao(p.prazoEsperado ? p.prazoEsperado.slice(0, 10) : '') }}
                                       className="text-gray-300 hover:text-primary-600"
                                       title="Editar pendência"
                                     >
@@ -1140,6 +1151,12 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                                 )}
                               </div>
                             </div>
+                            {p.prazoEsperado && p.status !== 'RESPONDIDA' && (
+                              <p className={`text-xs mt-1.5 ${new Date(p.prazoEsperado) < new Date() ? 'text-red-600 font-medium' : 'text-gray-400'}`}>
+                                Prazo esperado: {format(new Date(p.prazoEsperado), 'dd/MM/yy', { locale: ptBR })}
+                                {new Date(p.prazoEsperado) < new Date() ? ' — vencido' : ''}
+                              </p>
+                            )}
                             {p.status !== 'RESPONDIDA' && (
                               <button onClick={() => resolverPendencia.mutate(p.id)} className="text-xs text-primary-600 hover:underline mt-2">
                                 Marcar como respondida

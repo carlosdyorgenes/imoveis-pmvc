@@ -283,6 +283,9 @@ model PendenciaExterna {
   status          String    @default("AGUARDANDO")
   resposta        String?
   ultimaCobranca  DateTime?
+  // Evita notificar de novo a cada vez que a rota "preguiçosa" roda (ver escalonarPrazosVencidos
+  // em demandas.routes.ts) — volta pra false automaticamente se o prazoEsperado for alterado.
+  notificacaoVencimentoEnviada Boolean @default(false)
   createdAt       DateTime  @default(now())
 
   demanda   Demanda    @relation(fields: [demandaId], references: [id], onDelete: Cascade)
