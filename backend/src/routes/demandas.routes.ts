@@ -30,7 +30,7 @@ const uploadDocumento = multer({
       cb(null, `${crypto.randomUUID()}${ext}`)
     },
   }),
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB — zip costuma ser maior que os demais formatos
   fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase()
     if (!EXTENSOES_PERMITIDAS.has(ext)) {
@@ -1025,7 +1025,12 @@ demandasRouter.post('/atividades/:atividadeId/documentos', async (req: AuthReque
 // Upload real de arquivo (persistido no volume, servido em /uploads/documentos/<arquivo>)
 demandasRouter.post('/atividades/:atividadeId/documentos/upload', (req: AuthRequest, res, next) => {
   uploadDocumento.single('arquivo')(req, res, (err) => {
-    if (err) return next(new AppError(err.message || 'Erro no upload do arquivo'))
+    if (err) {
+      const mensagem = err.code === 'LIMIT_FILE_SIZE'
+        ? 'Arquivo maior que o limite permitido (50 MB)'
+        : (err.message || 'Erro no upload do arquivo')
+      return next(new AppError(mensagem))
+    }
     next()
   })
 }, async (req: AuthRequest, res) => {
