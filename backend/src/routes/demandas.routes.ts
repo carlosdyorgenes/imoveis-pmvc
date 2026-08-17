@@ -20,7 +20,7 @@ demandasRouter.use(authenticate)
 const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads', 'documentos')
 fs.mkdirSync(UPLOADS_DIR, { recursive: true })
 
-const EXTENSOES_PERMITIDAS = new Set(['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.jpg', '.jpeg', '.png', '.dwg', '.zip'])
+const EXTENSOES_PERMITIDAS = new Set(['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.jpg', '.jpeg', '.png', '.dwg', '.zip', '.rar'])
 
 const uploadDocumento = multer({
   storage: multer.diskStorage({

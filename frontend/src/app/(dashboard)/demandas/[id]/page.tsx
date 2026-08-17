@@ -954,11 +954,11 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                       </>
                     )}
                     <label className="btn-primary text-xs w-full justify-center cursor-pointer">
-                      <Plus className="w-3.5 h-3.5" /> Enviar arquivo (PDF, DOC, XLS, imagem, DWG...)
+                      <Plus className="w-3.5 h-3.5" /> Enviar arquivo (PDF, DOC, XLS, imagem, DWG, ZIP, RAR...)
                       <input
                         type="file"
                         className="hidden"
-                        accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.dwg,.zip"
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.dwg,.zip,.rar"
                         onChange={e => {
                           const arquivo = e.target.files?.[0]
                           if (arquivo) uploadDocumento.mutate({ atividadeId: atividadeModal.id, arquivo })
