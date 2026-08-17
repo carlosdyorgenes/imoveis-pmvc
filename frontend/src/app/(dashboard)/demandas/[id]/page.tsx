@@ -450,10 +450,14 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   })
 
 
+  // Só reidrata o texto quando o modal troca de atividade (ou abre) — nunca em resposta a um
+  // refetch em segundo plano do React Query (ex.: ao voltar de minimizar a aba), que senão
+  // sobrescrevia silenciosamente o que o usuário tinha digitado e ainda não salvou.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const a = demanda?.atividades.find(a => a.id === atividadeAberta)
     setObservacoesTexto(a?.observacoes || '')
-  }, [atividadeAberta, demanda])
+  }, [atividadeAberta])
 
   const salvarObservacoes = useMutation({
     mutationFn: ({ atividadeId, observacoes }: { atividadeId: string; observacoes: string }) =>
