@@ -173,6 +173,12 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const { user, isMaster } = useAuth()
 
   const [showDescricao, setShowDescricao] = useState(false)
+  const [showEditarDemanda, setShowEditarDemanda] = useState(false)
+  const [editDemandaAssunto, setEditDemandaAssunto] = useState('')
+  const [editDemandaDescricao, setEditDemandaDescricao] = useState('')
+  const [editDemandaInteressado, setEditDemandaInteressado] = useState('')
+  const [editDemandaPrazo, setEditDemandaPrazo] = useState('')
+  const [editDemandaPrioridade, setEditDemandaPrioridade] = useState<Prioridade>('MEDIA')
   const [showResumo, setShowResumo] = useState(false)
   const [atualizandoResumo, setAtualizandoResumo] = useState(false)
   const [comparacaoResumo, setComparacaoResumo] = useState<'houve' | 'nao-houve' | 'primeira' | null>(null)
@@ -250,6 +256,18 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   })
 
   const invalidar = () => qc.invalidateQueries({ queryKey: ['demanda', id] })
+
+  const editarDemanda = useMutation({
+    mutationFn: () => api.put(`/api/demandas/${id}`, {
+      assunto: editDemandaAssunto,
+      descricao: editDemandaDescricao,
+      interessado: editDemandaInteressado,
+      prazo: editDemandaPrazo || null,
+      prioridade: editDemandaPrioridade,
+    }),
+    onSuccess: () => { invalidar(); setShowEditarDemanda(false); toast.success('Demanda atualizada') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao editar demanda'))
+  })
 
   const deleteDemanda = useMutation({
     mutationFn: () => api.delete(`/api/demandas/${id}`),
@@ -509,10 +527,25 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
             )}
           </p>
         </div>
+        {(isMaster || demanda.solicitante.id === user?.id) && (
+          <button
+            onClick={() => {
+              setEditDemandaAssunto(demanda.assunto)
+              setEditDemandaDescricao(demanda.descricao || '')
+              setEditDemandaInteressado(demanda.interessado || '')
+              setEditDemandaPrazo(demanda.prazo ? demanda.prazo.slice(0, 10) : '')
+              setEditDemandaPrioridade(demanda.prioridade)
+              setShowEditarDemanda(true)
+            }}
+            className="ml-auto btn-secondary text-xs"
+          >
+            <Pencil className="w-3.5 h-3.5" /> Editar Demanda
+          </button>
+        )}
         {isMaster && (
           <button
             onClick={() => confirm(`Excluir definitivamente a demanda GEP ${demanda.gepNumero}/${demanda.gepAno}?\n\nIsso apaga também todas as atividades, checklist, documentos e histórico relacionados. Esta ação não pode ser desfeita.`) && deleteDemanda.mutate()}
-            className="ml-auto btn-danger text-xs"
+            className="btn-danger text-xs"
           >
             <Trash2 className="w-3.5 h-3.5" /> Excluir Demanda
           </button>
@@ -1407,6 +1440,55 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
             </div>
             <div className="p-5 overflow-y-auto">
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{demanda.descricao}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditarDemanda && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-800">Editar demanda</h3>
+              <button onClick={() => setShowEditarDemanda(false)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1 space-y-3">
+              <div>
+                <label className="label">Assunto</label>
+                <input className="input" value={editDemandaAssunto} onChange={e => setEditDemandaAssunto(e.target.value)} autoFocus />
+              </div>
+              <div>
+                <label className="label">Interessado</label>
+                <input className="input" value={editDemandaInteressado} onChange={e => setEditDemandaInteressado(e.target.value)} />
+              </div>
+              <div>
+                <label className="label">Descrição</label>
+                <textarea className="input min-h-24 resize-y" value={editDemandaDescricao} onChange={e => setEditDemandaDescricao(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Prazo</label>
+                  <input type="date" className="input" value={editDemandaPrazo} onChange={e => setEditDemandaPrazo(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Prioridade</label>
+                  <select className="input" value={editDemandaPrioridade} onChange={e => setEditDemandaPrioridade(e.target.value as Prioridade)}>
+                    {Object.entries(PRIORIDADE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 p-5 border-t border-gray-100">
+              <button onClick={() => setShowEditarDemanda(false)} className="btn-secondary flex-1 justify-center">Cancelar</button>
+              <button
+                onClick={() => editDemandaAssunto.trim() && editarDemanda.mutate()}
+                disabled={!editDemandaAssunto.trim() || editarDemanda.isPending}
+                className="btn-primary flex-1 justify-center"
+              >
+                {editarDemanda.isPending ? 'Salvando...' : 'Salvar'}
+              </button>
             </div>
           </div>
         </div>
