@@ -203,7 +203,6 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [novoDocLink, setNovoDocLink] = useState('')
 
   const [showFinalizar, setShowFinalizar] = useState(false)
-  const [infoFinalizacao, setInfoFinalizacao] = useState('')
 
   const [showTransferir, setShowTransferir] = useState(false)
   const [novoResponsavelTransfer, setNovoResponsavelTransfer] = useState('')
@@ -313,7 +312,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     onSuccess: () => {
       invalidar(); toast.success('Atividade atualizada')
       setShowDevolver(false); setDevolverMotivo('')
-      setShowFinalizar(false); setInfoFinalizacao('')
+      setShowFinalizar(false)
       setShowReabrir(false); setMotivoReabrir('')
       setShowEncerrarAtividade(false); setMotivoEncerrar('')
     },
@@ -1186,7 +1185,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   <button onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'AGUARDANDO_INFORMACAO' })} className="btn-secondary text-xs">
                     Aguardar informação
                   </button>
-                  <button onClick={() => { setInfoFinalizacao(''); setShowFinalizar(true) }} className="btn-primary flex-1 justify-center">
+                  <button onClick={() => setShowFinalizar(true)} className="btn-primary flex-1 justify-center">
                     <CheckCircle2 className="w-4 h-4" /> Finalizar tarefa
                   </button>
                 </div>
@@ -1403,18 +1402,6 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               </button>
             </div>
             <div className="p-5 overflow-y-auto flex-1 space-y-4">
-              <p className="text-sm font-medium text-gray-800">Adicione as informações das solicitações atendidas no GEP.</p>
-              <div>
-                <label className="label">Informações das solicitações atendidas no GEP *</label>
-                <textarea
-                  className="input min-h-24 resize-none"
-                  placeholder="Descreva o que foi realizado..."
-                  value={infoFinalizacao}
-                  onChange={e => setInfoFinalizacao(e.target.value)}
-                  autoFocus
-                />
-              </div>
-
               <div>
                 <p className="text-xs font-medium text-gray-500 mb-2">Documentos anexados</p>
                 {atividadeModal.documentos.length === 0 ? (
@@ -1439,8 +1426,8 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
             <div className="flex gap-3 p-5 border-t border-gray-100">
               <button onClick={() => setShowFinalizar(false)} className="btn-secondary flex-1 justify-center">Voltar</button>
               <button
-                onClick={() => infoFinalizacao.trim() && statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'CONCLUIDA', informacoesFinalizacao: infoFinalizacao.trim() })}
-                disabled={!infoFinalizacao.trim() || (atividadeModal.anexoObrigatorio && atividadeModal.documentos.length === 0) || statusAtividade.isPending}
+                onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'CONCLUIDA' })}
+                disabled={(atividadeModal.anexoObrigatorio && atividadeModal.documentos.length === 0) || statusAtividade.isPending}
                 className="btn-primary flex-1 justify-center"
               >
                 Confirmar finalização

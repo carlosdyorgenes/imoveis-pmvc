@@ -779,11 +779,9 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
     if (pendentes > 0 && !motivo) {
       throw new AppError(`Há ${pendentes} passo(s) pendente(s). Informe uma justificativa para concluir mesmo assim.`)
     }
-    // Finalização (Bloco 5): exige o texto "informações das solicitações atendidas no GEP" e,
-    // quando a atividade foi marcada com anexo obrigatório, exige ao menos um documento anexado.
-    if (!informacoesFinalizacao?.trim()) {
-      throw new AppError('Informe as informações das solicitações atendidas no GEP')
-    }
+    // Finalização (Bloco 5): quando a atividade foi marcada com anexo obrigatório, exige ao
+    // menos um documento anexado. "Informações das solicitações atendidas no GEP" deixou de
+    // ser obrigatório — o texto continua sendo salvo se vier preenchido, mas não bloqueia mais.
     if (atividade.anexoObrigatorio && atividade.documentos.length === 0) {
       throw new AppError('Esta atividade exige ao menos um documento anexado para ser finalizada')
     }
