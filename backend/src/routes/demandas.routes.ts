@@ -3,6 +3,7 @@ import multer from 'multer'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
+import archiver from 'archiver'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireMaster, AuthRequest } from '../middleware/auth'
 import { AppError } from '../middleware/errorHandler'
@@ -1718,6 +1719,46 @@ demandasRouter.get('/documentos/:id/arquivo', async (req: AuthRequest, res) => {
   if (!fs.existsSync(filePath)) throw new AppError('Arquivo não encontrado no armazenamento', 404)
 
   res.download(filePath, doc.nome + path.extname(doc.arquivoPath))
+})
+
+// Baixa todos os arquivos enviados (não os anexados por link) de uma atividade em um único
+// .zip — mesma verificação de acesso do download individual. Documentos por link do Google
+// Drive não entram (não há arquivo no servidor pra compactar; o link continua acessível
+// normalmente pela tela).
+demandasRouter.get('/atividades/:atividadeId/documentos/zip', async (req: AuthRequest, res) => {
+  const atividade = await prisma.atividade.findUnique({
+    where: { id: req.params.atividadeId },
+    include: { demanda: { select: { solicitanteId: true } }, documentos: true },
+  })
+  if (!atividade) throw new AppError('Atividade não encontrada', 404)
+  if (req.user!.role !== 'MASTER' && atividade.demanda.solicitanteId !== req.user!.id) {
+    const isResponsavel = await isResponsavelDaAtividade(req.user!.id, atividade)
+    if (!isResponsavel) throw new AppError('Você não possui permissão para acessar este conteúdo.', 403)
+  }
+
+  const arquivos = atividade.documentos.filter(d => d.arquivoPath && fs.existsSync(path.join(UPLOADS_DIR, d.arquivoPath)))
+  if (arquivos.length === 0) throw new AppError('Nenhum arquivo enviado nesta atividade para compactar', 404)
+
+  res.setHeader('Content-Type', 'application/zip')
+  res.setHeader('Content-Disposition', `attachment; filename="documentos-${atividade.titulo.replace(/[^\w\-]+/g, '_')}.zip"`)
+
+  const zip = archiver('zip', { zlib: { level: 9 } })
+  zip.on('error', (err) => { res.status(500).end() ; console.error('Erro ao gerar zip:', err) })
+  zip.pipe(res)
+
+  // Nomes repetidos (mesmo "nome" de documento em versões diferentes) recebem sufixo pra não
+  // sobrescrever um ao outro dentro do zip.
+  const nomesUsados = new Map<string, number>()
+  for (const doc of arquivos) {
+    const ext = path.extname(doc.arquivoPath!)
+    let nomeArquivo = `${doc.nome}${ext}`
+    const usos = nomesUsados.get(nomeArquivo) || 0
+    nomesUsados.set(nomeArquivo, usos + 1)
+    if (usos > 0) nomeArquivo = `${doc.nome} (${usos})${ext}`
+    zip.file(path.join(UPLOADS_DIR, doc.arquivoPath!), { name: nomeArquivo })
+  }
+
+  await zip.finalize()
 })
 
 // Recalcula o hash do arquivo em disco agora e compara com o hash salvo no upload.

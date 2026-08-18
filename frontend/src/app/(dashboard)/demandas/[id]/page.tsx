@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { Demanda, Atividade, StatusAtividade, StatusDemanda, User, Equipe, Prioridade } from '@/types'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check, StickyNote } from 'lucide-react'
+import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check, StickyNote, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -405,6 +405,22 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
       URL.revokeObjectURL(url)
     } catch {
       toast.error('Erro ao baixar arquivo')
+    }
+  }
+
+  const [baixandoZip, setBaixandoZip] = useState(false)
+  const baixarTodosZip = async (atividadeId: string, tituloAtividade: string) => {
+    setBaixandoZip(true)
+    try {
+      const res = await api.get(`/api/demandas/atividades/${atividadeId}/documentos/zip`, { responseType: 'blob' })
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url; a.download = `documentos-${tituloAtividade}.zip`; a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Erro ao baixar arquivos (verifique se há algum arquivo enviado nesta atividade)')
+    } finally {
+      setBaixandoZip(false)
     }
   }
 
@@ -980,9 +996,20 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               </div>
 
               <div>
-                <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1.5">
-                  <FileText className="w-3.5 h-3.5" /> Documentos
-                </p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5" /> Documentos
+                  </p>
+                  {atividadeModal.documentos.filter(d => d.arquivoPath).length > 1 && (
+                    <button
+                      onClick={() => baixarTodosZip(atividadeModal.id, atividadeModal.titulo)}
+                      disabled={baixandoZip}
+                      className="text-xs text-primary-600 hover:underline flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Download className="w-3 h-3" /> {baixandoZip ? 'Compactando...' : 'Baixar todos (.zip)'}
+                    </button>
+                  )}
+                </div>
                 {podeAnexarDocumento(atividadeModal) && (
                   <div className="space-y-2 mb-2">
                     {/* Anexo por link do Google Drive: oculto a pedido (não está em uso no momento),
