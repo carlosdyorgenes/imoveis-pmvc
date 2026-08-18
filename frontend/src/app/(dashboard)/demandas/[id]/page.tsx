@@ -1191,6 +1191,11 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   Retomar atividade
                 </button>
               )}
+              {atividadeModal.status === 'DEVOLVIDA' && isResponsavel(atividadeModal) && (
+                <button onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'EM_ANDAMENTO' })} className="btn-primary w-full justify-center">
+                  Retomar atividade corrigida
+                </button>
+              )}
               {atividadeModal.status === 'EM_ANDAMENTO' && isResponsavel(atividadeModal) && !showFinalizar && (
                 <div className="flex gap-2">
                   <button onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'AGUARDANDO_INFORMACAO' })} className="btn-secondary text-xs">
