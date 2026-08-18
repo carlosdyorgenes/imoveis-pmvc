@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { StatusAtividade, Prioridade, TemposAtividade } from '@/types'
-import { ListTodo, Clock, AlertTriangle, ArrowUp, Minus, ArrowDown, Sparkles } from 'lucide-react'
+import { ListTodo, Clock, AlertTriangle, ArrowUp, Minus, ArrowDown, Sparkles, RotateCcw } from 'lucide-react'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
@@ -50,7 +50,9 @@ const PRIORIDADE_COLOR: Record<Prioridade, string> = {
 }
 const PRIORIDADE_ICONE: Record<Prioridade, typeof ArrowUp> = { ALTA: ArrowUp, MEDIA: Minus, BAIXA: ArrowDown }
 
-const ATIVAS: StatusAtividade[] = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA']
+// DEVOLVIDA entra na fila normal — é trabalho pendente que precisa de correção, tão urgente
+// quanto uma atividade recém-atribuída (ver ordenação por prioridade abaixo).
+const ATIVAS: StatusAtividade[] = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA', 'DEVOLVIDA']
 
 type Aba = 'fila' | 'andamento' | 'devolvidas' | 'concluidas' | 'historico'
 
@@ -148,7 +150,7 @@ export default function MinhaFilaPage() {
               <Link
                 key={a.id}
                 href={`/demandas/${a.demanda.id}`}
-                className={`card flex flex-col sm:flex-row sm:items-center gap-3 hover:shadow-md transition-shadow ${atrasadaFlag ? 'border-red-300' : ''}`}
+                className={`card flex flex-col sm:flex-row sm:items-center gap-3 hover:shadow-md transition-shadow ${a.status === 'DEVOLVIDA' ? 'border-orange-300' : atrasadaFlag ? 'border-red-300' : ''}`}
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -156,6 +158,11 @@ export default function MinhaFilaPage() {
                     <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${PRIORIDADE_COLOR[a.prioridade]}`}>
                       <Icone className="w-3 h-3" /> {PRIORIDADE_LABEL[a.prioridade]}
                     </span>
+                    {a.status === 'DEVOLVIDA' && (
+                      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-orange-100 text-orange-700">
+                        <RotateCcw className="w-3 h-3" /> Atividade devolvida
+                      </span>
+                    )}
                     {nova && (
                       <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-primary-100 text-primary-700">
                         <Sparkles className="w-3 h-3" /> Nova

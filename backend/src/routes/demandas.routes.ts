@@ -259,9 +259,11 @@ demandasRouter.get('/atividades/minhas', async (req: AuthRequest, res) => {
   const minhasEquipes = await prisma.equipeMembro.findMany({ where: { userId: uid }, select: { equipeId: true } })
   const equipeIds = minhasEquipes.map(m => m.equipeId)
 
+  // DEVOLVIDA entra na fila normal (não só na aba "todas") — é trabalho pendente que precisa
+  // de correção, tão urgente quanto uma atividade recém-atribuída.
   const statusFiltro = todas
     ? { not: 'CANCELADA' as const }
-    : { in: ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'] as Array<'ATRIBUIDA' | 'EM_ANDAMENTO' | 'AGUARDANDO_INFORMACAO' | 'REABERTA'> }
+    : { in: ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA', 'DEVOLVIDA'] as Array<'ATRIBUIDA' | 'EM_ANDAMENTO' | 'AGUARDANDO_INFORMACAO' | 'REABERTA' | 'DEVOLVIDA'> }
 
   const atividades = await prisma.atividade.findMany({
     where: {
@@ -278,11 +280,16 @@ demandasRouter.get('/atividades/minhas', async (req: AuthRequest, res) => {
   })
 
   // A regra de prioridade + antiguidade (Seção 12) só rege a fila do que está pendente de ação;
-  // fora dela, ordena por mais recente primeiro (uso puramente de consulta/histórico).
+  // fora dela, ordena por mais recente primeiro (uso puramente de consulta/histórico). Dentro do
+  // que está pendente, uma atividade devolvida para correção vem sempre primeiro — precisa de
+  // correção e volta a ser urgente, independentemente da prioridade original dela.
   atividades.sort((a, b) => {
-    const ativaA = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'].includes(a.status)
-    const ativaB = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'].includes(b.status)
+    const ativaA = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA', 'DEVOLVIDA'].includes(a.status)
+    const ativaB = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA', 'DEVOLVIDA'].includes(b.status)
     if (ativaA && ativaB) {
+      const devolvidaA = a.status === 'DEVOLVIDA'
+      const devolvidaB = b.status === 'DEVOLVIDA'
+      if (devolvidaA !== devolvidaB) return devolvidaA ? -1 : 1
       const pa = PESO_PRIORIDADE[a.prioridade] ?? 1
       const pb = PESO_PRIORIDADE[b.prioridade] ?? 1
       if (pa !== pb) return pa - pb
