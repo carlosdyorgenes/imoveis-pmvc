@@ -838,7 +838,7 @@ demandasRouter.put('/atividades/:id/status', async (req: AuthRequest, res) => {
     await notificarResponsaveis(atividade, 'ATIVIDADE_APROVADA', `Sua atividade "${atividade.titulo}" foi aprovada (GEP ${gep})`)
   }
 
-  if (['CONCLUIDA', 'APROVADA', 'REABERTA', 'CANCELADA'].includes(status)) {
+  if (['CONCLUIDA', 'APROVADA', 'REABERTA', 'CANCELADA', 'DEVOLVIDA', 'EM_ANDAMENTO'].includes(status)) {
     await atualizarStatusConformeAtividades(atividade.demandaId)
   }
 
@@ -906,8 +906,9 @@ demandasRouter.put('/atividades/:id/transferir', async (req: AuthRequest, res) =
 })
 
 // Deriva o status geral da demanda a partir do conjunto de atividades ativas (não canceladas):
-// todas aprovadas -> Concluída; algumas aprovadas e outras ainda em curso -> Parcialmente
-// concluída; nenhuma aprovada ainda -> não mexe (mantém EM_ANDAMENTO/ABERTA como está).
+// todas aprovadas -> Concluída; alguma devolvida para correção -> Devolvida (prioridade sobre
+// as demais, pois exige ação); algumas aprovadas e outras ainda em curso -> Parcialmente
+// concluída; nenhuma aprovada ainda -> Em andamento.
 // Reavalia mesmo quando a demanda já está Concluída: se uma nova atividade for criada depois
 // (ex.: reaberta para outro setor), a demanda deixa de estar 100% concluída e precisa voltar
 // a refletir isso (Parcialmente concluída/Em andamento) — do contrário ela fica "presa" como
@@ -922,19 +923,23 @@ async function atualizarStatusConformeAtividades(demandaId: string) {
 
   const todasAprovadas = ativas.every(a => a.status === 'APROVADA')
   const algumaAprovada = ativas.some(a => a.status === 'APROVADA')
+  const algumaDevolvida = ativas.some(a => a.status === 'DEVOLVIDA')
 
   let novoStatus: string | null = null
   if (todasAprovadas) novoStatus = 'CONCLUIDA'
-  else if (algumaAprovada && demanda.status !== 'PARCIALMENTE_CONCLUIDA') novoStatus = 'PARCIALMENTE_CONCLUIDA'
-  else if (!algumaAprovada && demanda.status === 'PARCIALMENTE_CONCLUIDA') novoStatus = 'EM_ANDAMENTO'
+  else if (algumaDevolvida) { if (demanda.status !== 'DEVOLVIDA') novoStatus = 'DEVOLVIDA' }
+  else if (algumaAprovada) { if (demanda.status !== 'PARCIALMENTE_CONCLUIDA') novoStatus = 'PARCIALMENTE_CONCLUIDA' }
+  else if (['PARCIALMENTE_CONCLUIDA', 'DEVOLVIDA'].includes(demanda.status)) novoStatus = 'EM_ANDAMENTO'
 
   if (novoStatus && novoStatus !== demanda.status) {
     await prisma.demanda.update({ where: { id: demandaId }, data: { status: novoStatus as any } })
     const descricao = novoStatus === 'CONCLUIDA'
       ? 'Todas as tarefas ativas foram aprovadas — demanda concluída automaticamente'
-      : novoStatus === 'PARCIALMENTE_CONCLUIDA'
-        ? 'Parte das tarefas foi aprovada — demanda parcialmente concluída'
-        : 'Demanda voltou para em andamento'
+      : novoStatus === 'DEVOLVIDA'
+        ? 'Uma atividade foi devolvida para correção — demanda marcada como devolvida'
+        : novoStatus === 'PARCIALMENTE_CONCLUIDA'
+          ? 'Parte das tarefas foi aprovada — demanda parcialmente concluída'
+          : 'Demanda voltou para em andamento'
     await registrarHistorico(demandaId, demanda.solicitanteId, 'STATUS', descricao)
   }
 }
