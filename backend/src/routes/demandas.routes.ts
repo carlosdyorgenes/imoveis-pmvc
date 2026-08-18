@@ -495,7 +495,13 @@ demandasRouter.post('/:id/resumo-consulta', requireMaster, async (req: AuthReque
   })
 
   const comparacao = !anterior ? 'primeira' : anterior.assinatura === assinaturaAtual ? 'nao-houve' : 'houve'
-  res.json({ comparacao })
+  // Só faz sentido reaproveitar o texto em prosa salvo se nada mudou desde que ele foi gerado —
+  // se mudou, o texto antigo já não reflete o estado atual das atividades.
+  res.json({
+    comparacao,
+    textoProsaIA: comparacao === 'nao-houve' ? anterior?.textoProsaIA ?? null : null,
+    provedorProsaIA: comparacao === 'nao-houve' ? anterior?.provedorProsaIA ?? null : null,
+  })
 })
 
 // Chama a Claude API (Anthropic). Lança AppError com o motivo real do erro upstream — quem
@@ -589,7 +595,10 @@ demandasRouter.post('/:id/resumo-formal', requireMaster, async (req: AuthRequest
     throw new AppError('Geração por IA não configurada neste servidor (nenhum provedor com chave configurada)', 503)
   }
 
-  const demanda = await prisma.demanda.findUnique({ where: { id: req.params.id }, select: { id: true } })
+  const demanda = await prisma.demanda.findUnique({
+    where: { id: req.params.id },
+    include: { atividades: true, pendenciasExternas: true },
+  })
   if (!demanda) throw new AppError('Demanda não encontrada', 404)
 
   let textoFormal: string
@@ -609,6 +618,16 @@ demandasRouter.post('/:id/resumo-formal', requireMaster, async (req: AuthRequest
       throw erroClaude
     }
   }
+
+  // Guarda o texto gerado (por usuário+demanda) pra poder ser reconsultado sem gastar de novo
+  // com IA enquanto nada mudar nas atividades — ver GET .../resumo-consulta.
+  const uid = req.user!.id
+  const assinaturaAtual = assinaturaAtividadesServidor(demanda)
+  await prisma.resumoConsulta.upsert({
+    where: { demandaId_userId: { demandaId: demanda.id, userId: uid } },
+    create: { demandaId: demanda.id, userId: uid, assinatura: assinaturaAtual, textoProsaIA: textoFormal, provedorProsaIA: provedorUsado },
+    update: { assinatura: assinaturaAtual, textoProsaIA: textoFormal, provedorProsaIA: provedorUsado },
+  })
 
   res.json({ texto: textoFormal, provedor: provedorUsado })
 })

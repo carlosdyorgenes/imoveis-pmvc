@@ -184,6 +184,10 @@ model ResumoConsulta {
   demandaId   String
   userId      String
   assinatura  String
+  // Guarda o último texto em prosa gerado por IA (e por qual provedor) pra essa demanda+usuário,
+  // pra poder ser reconsultado sem gastar de novo com a IA quando nada mudou desde então.
+  textoProsaIA     String?
+  provedorProsaIA  String?
   atualizadoEm DateTime @updatedAt
 
   demanda Demanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)

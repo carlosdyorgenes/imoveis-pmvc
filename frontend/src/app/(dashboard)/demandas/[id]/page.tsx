@@ -580,6 +580,13 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                       // Master use, não só no dispositivo onde consultou da última vez.
                       const res = await api.post(`/api/demandas/${id}/resumo-consulta`)
                       setComparacaoResumo(res.data.comparacao)
+                      // Nada mudou desde a última vez: reaproveita o texto em prosa já gerado
+                      // (evita gasto novo com IA e permite reconsultar o mesmo texto de antes).
+                      if (res.data.textoProsaIA) {
+                        setTextoResumoIA(res.data.textoProsaIA)
+                        setProvedorResumoIA(res.data.provedorProsaIA || null)
+                        setModoProsaIA(true)
+                      }
                     } finally {
                       setAtualizandoResumo(false)
                     }
@@ -1521,7 +1528,8 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 )}
                 {comparacaoResumo === 'nao-houve' && (
                   <p className="text-xs text-red-600 font-medium mt-0.5">
-                    Não houve atualização nas atividades desde a última consulta — considere não gerar a versão em prosa (IA) pra evitar gasto desnecessário.
+                    Não houve atualização nas atividades desde a última consulta
+                    {modoProsaIA ? ' — exibindo o texto em prosa gerado anteriormente.' : ' — considere não gerar a versão em prosa (IA) pra evitar gasto desnecessário.'}
                   </p>
                 )}
                 {comparacaoResumo === 'primeira' && (
@@ -1529,7 +1537,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 )}
                 {modoProsaIA && (
                   <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1.5">
-                    Versão em prosa gerada por IA — confira antes de usar oficialmente.
+                    {comparacaoResumo === 'nao-houve' ? 'Versão em prosa salva de uma consulta anterior.' : 'Versão em prosa gerada por IA — confira antes de usar oficialmente.'}
                     {provedorResumoIA === 'openai' && (
                       <span className="text-amber-600 font-medium">(via ChatGPT — Claude indisponível)</span>
                     )}
