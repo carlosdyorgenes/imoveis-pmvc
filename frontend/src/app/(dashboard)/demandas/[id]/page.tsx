@@ -183,6 +183,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [atualizandoResumo, setAtualizandoResumo] = useState(false)
   const [comparacaoResumo, setComparacaoResumo] = useState<'houve' | 'nao-houve' | 'primeira' | null>(null)
   const [textoResumoIA, setTextoResumoIA] = useState('')
+  const [provedorResumoIA, setProvedorResumoIA] = useState<'claude' | 'openai' | null>(null)
   const [modoProsaIA, setModoProsaIA] = useState(false)
   const [showNovaAtividade, setShowNovaAtividade] = useState(false)
   const [novoTitulo, setNovoTitulo] = useState('')
@@ -283,8 +284,11 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   })
 
   const gerarResumoIA = useMutation({
-    mutationFn: (texto: string) => api.post(`/api/demandas/${id}/resumo-formal`, { texto }).then(r => r.data.texto as string),
-    onSuccess: (texto) => { setTextoResumoIA(texto); setModoProsaIA(true) },
+    mutationFn: (texto: string) => api.post(`/api/demandas/${id}/resumo-formal`, { texto }).then(r => r.data as { texto: string; provedor: 'claude' | 'openai' }),
+    onSuccess: ({ texto, provedor }) => {
+      setTextoResumoIA(texto); setProvedorResumoIA(provedor); setModoProsaIA(true)
+      if (provedor === 'openai') toast('Gerado pela IA alternativa (ChatGPT) — a Claude API não respondeu', { icon: 'ℹ️' })
+    },
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao gerar texto com IA'))
   })
 
@@ -1524,10 +1528,15 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   <p className="text-xs text-gray-400 mt-0.5">Primeira consulta desta demanda — sem base anterior para comparar.</p>
                 )}
                 {modoProsaIA && (
-                  <p className="text-[11px] text-gray-400 mt-0.5">Versão em prosa gerada por IA — confira antes de usar oficialmente.</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1.5">
+                    Versão em prosa gerada por IA — confira antes de usar oficialmente.
+                    {provedorResumoIA === 'openai' && (
+                      <span className="text-amber-600 font-medium">(via ChatGPT — Claude indisponível)</span>
+                    )}
+                  </p>
                 )}
               </div>
-              <button onClick={() => { setShowResumo(false); setModoProsaIA(false); setTextoResumoIA(''); setComparacaoResumo(null)}} className="p-1.5 hover:bg-gray-100 rounded-lg">
+              <button onClick={() => { setShowResumo(false); setModoProsaIA(false); setTextoResumoIA(''); setComparacaoResumo(null); setProvedorResumoIA(null) }} className="p-1.5 hover:bg-gray-100 rounded-lg">
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
@@ -1541,7 +1550,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               )}
             </div>
             <div className="flex flex-wrap gap-2 p-5 border-t border-gray-100">
-              <button onClick={() => { setShowResumo(false); setModoProsaIA(false); setTextoResumoIA(''); setComparacaoResumo(null)}} className="btn-secondary flex-1 justify-center">Fechar</button>
+              <button onClick={() => { setShowResumo(false); setModoProsaIA(false); setTextoResumoIA(''); setComparacaoResumo(null); setProvedorResumoIA(null) }} className="btn-secondary flex-1 justify-center">Fechar</button>
               {modoProsaIA ? (
                 <>
                   <button onClick={() => setModoProsaIA(false)} className="btn-secondary flex-1 justify-center">Ver estruturado</button>

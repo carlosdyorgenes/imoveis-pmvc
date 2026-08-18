@@ -498,15 +498,11 @@ demandasRouter.post('/:id/resumo-consulta', requireMaster, async (req: AuthReque
   res.json({ comparacao })
 })
 
-demandasRouter.post('/:id/resumo-formal', requireMaster, async (req: AuthRequest, res) => {
-  const { texto } = req.body
-  if (!texto?.trim()) throw new AppError('Informe o texto a ser reescrito')
-
+// Chama a Claude API (Anthropic). Lança AppError com o motivo real do erro upstream — quem
+// chama decide se tenta a alternativa (OpenAI) ou repassa o erro direto.
+async function gerarViaAnthropic(texto: string): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) throw new AppError('Geração por IA não configurada neste servidor (falta ANTHROPIC_API_KEY)', 503)
-
-  const demanda = await prisma.demanda.findUnique({ where: { id: req.params.id }, select: { id: true } })
-  if (!demanda) throw new AppError('Demanda não encontrada', 404)
+  if (!apiKey) throw new AppError('ANTHROPIC_API_KEY não configurada', 503)
 
   let resposta: Response
   try {
@@ -525,25 +521,96 @@ demandasRouter.post('/:id/resumo-formal', requireMaster, async (req: AuthRequest
       }),
     })
   } catch {
-    throw new AppError('Falha de comunicação com o serviço de IA. Tente novamente.', 502)
+    throw new AppError('Falha de comunicação com a Claude API', 502)
   }
 
   if (!resposta.ok) {
-    // Repassa o motivo real (ex.: "invalid x-api-key") pra facilitar diagnóstico — endpoint
-    // restrito ao Master, então não há problema em expor o detalhe do erro da API upstream.
     let detalhe = ''
     try {
       const corpoErro = await resposta.json() as { error?: { message?: string } }
       detalhe = corpoErro?.error?.message || ''
     } catch { /* corpo não era JSON válido */ }
-    throw new AppError(`Serviço de IA retornou erro (${resposta.status})${detalhe ? `: ${detalhe}` : ''}`, 502)
+    throw new AppError(`Claude API retornou erro (${resposta.status})${detalhe ? `: ${detalhe}` : ''}`, 502)
   }
 
   const data = await resposta.json() as { content?: { type: string; text?: string }[] }
   const textoFormal = data.content?.find(c => c.type === 'text')?.text?.trim()
-  if (!textoFormal) throw new AppError('O serviço de IA não retornou texto. Tente novamente.', 502)
+  if (!textoFormal) throw new AppError('A Claude API não retornou texto', 502)
+  return textoFormal
+}
 
-  res.json({ texto: textoFormal })
+// Rota alternativa (ChatGPT/OpenAI) usada só quando a Claude API falha — mesmo prompt de
+// sistema, pra manter o mesmo padrão de texto independente de qual provedor respondeu.
+async function gerarViaOpenAI(texto: string): Promise<string> {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) throw new AppError('OPENAI_API_KEY não configurada', 503)
+
+  let resposta: Response
+  try {
+    resposta = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        max_tokens: 1024,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT_RESUMO_IA },
+          { role: 'user', content: texto },
+        ],
+      }),
+    })
+  } catch {
+    throw new AppError('Falha de comunicação com a OpenAI API', 502)
+  }
+
+  if (!resposta.ok) {
+    let detalhe = ''
+    try {
+      const corpoErro = await resposta.json() as { error?: { message?: string } }
+      detalhe = corpoErro?.error?.message || ''
+    } catch { /* corpo não era JSON válido */ }
+    throw new AppError(`OpenAI API retornou erro (${resposta.status})${detalhe ? `: ${detalhe}` : ''}`, 502)
+  }
+
+  const data = await resposta.json() as { choices?: { message?: { content?: string } }[] }
+  const textoFormal = data.choices?.[0]?.message?.content?.trim()
+  if (!textoFormal) throw new AppError('A OpenAI API não retornou texto', 502)
+  return textoFormal
+}
+
+demandasRouter.post('/:id/resumo-formal', requireMaster, async (req: AuthRequest, res) => {
+  const { texto } = req.body
+  if (!texto?.trim()) throw new AppError('Informe o texto a ser reescrito')
+
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
+    throw new AppError('Geração por IA não configurada neste servidor (nenhum provedor com chave configurada)', 503)
+  }
+
+  const demanda = await prisma.demanda.findUnique({ where: { id: req.params.id }, select: { id: true } })
+  if (!demanda) throw new AppError('Demanda não encontrada', 404)
+
+  let textoFormal: string
+  let provedorUsado: 'claude' | 'openai' = 'claude'
+  try {
+    textoFormal = await gerarViaAnthropic(texto)
+  } catch (erroClaude) {
+    // Claude falhou (ex.: bloqueio de verificação de identidade, créditos, etc.) — tenta a
+    // alternativa antes de desistir, só se ela estiver configurada.
+    if (!process.env.OPENAI_API_KEY) throw erroClaude
+    try {
+      textoFormal = await gerarViaOpenAI(texto)
+      provedorUsado = 'openai'
+    } catch {
+      // Repassa o erro original da Claude, que é o provedor principal — mais útil pro
+      // diagnóstico do que o erro da alternativa.
+      throw erroClaude
+    }
+  }
+
+  res.json({ texto: textoFormal, provedor: provedorUsado })
 })
 
 // Padrão de negócio do protocolo GEP: NUMERO/ANO (ex: 123456/2026) — validado em duas partes
