@@ -195,6 +195,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const [novaPrioridade, setNovaPrioridade] = useState<Prioridade>('MEDIA')
 
   const [atividadeAberta, setAtividadeAberta] = useState<string | null>(null)
+  const [abaAtividadeModal, setAbaAtividadeModal] = useState<'detalhes' | 'outrasEquipes'>('detalhes')
   const [novoPasso, setNovoPasso] = useState('')
   const [passoEditando, setPassoEditando] = useState<string | null>(null)
   const [textoEdicaoPasso, setTextoEdicaoPasso] = useState('')
@@ -698,7 +699,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
             const ativa = ['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'REABERTA'].includes(a.status)
             const atrasada = ativa && a.prazo && new Date(a.prazo) < new Date()
             return (
-              <button key={a.id} onClick={() => setAtividadeAberta(a.id)} className="card w-full text-left hover:shadow-md transition-shadow">
+              <button key={a.id} onClick={() => { setAtividadeAberta(a.id); setAbaAtividadeModal('detalhes') }} className="card w-full text-left hover:shadow-md transition-shadow">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-medium text-gray-800 text-sm truncate flex items-center gap-1.5">
@@ -861,7 +862,25 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               </div>
             </div>
 
-            {atividadeModal.status === 'ATRIBUIDA' && isResponsavel(atividadeModal) && (
+            {!!demanda.documentosOutrasEquipes?.length && (
+              <div className="flex gap-1 px-5 pt-3 border-b border-gray-100">
+                <button
+                  onClick={() => setAbaAtividadeModal('detalhes')}
+                  className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${abaAtividadeModal === 'detalhes' ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                >
+                  Atividade
+                </button>
+                <button
+                  onClick={() => setAbaAtividadeModal('outrasEquipes')}
+                  className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${abaAtividadeModal === 'outrasEquipes' ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                >
+                  <Users className="w-3.5 h-3.5" /> Documentos de outras equipes
+                  <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full">{demanda.documentosOutrasEquipes.length}</span>
+                </button>
+              </div>
+            )}
+
+            {atividadeModal.status === 'ATRIBUIDA' && isResponsavel(atividadeModal) && abaAtividadeModal === 'detalhes' && (
               <div className="px-5 pt-4">
                 <button onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'EM_ANDAMENTO' })} className="btn-primary w-full justify-center">
                   Iniciar atividade
@@ -869,6 +888,35 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               </div>
             )}
 
+            {abaAtividadeModal === 'outrasEquipes' ? (
+              <div className="p-5 overflow-y-auto flex-1">
+                <p className="text-xs text-gray-400 mb-3">
+                  Documentos anexados por outras equipes nesta mesma demanda — confira antes de anexar de novo o mesmo arquivo.
+                </p>
+                <div className="space-y-1.5">
+                  {(demanda.documentosOutrasEquipes || []).map(d => (
+                    <div key={d.id} className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-gray-50 group">
+                      {d.arquivoPath ? (
+                        <button onClick={() => baixarArquivo(d.id, d.nome)} className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0 text-left">
+                          <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span className="truncate">{d.nome}</span>
+                          <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
+                        </button>
+                      ) : (
+                        <a href={d.linkDrive} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0">
+                          <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span className="truncate">{d.nome}</span>
+                          <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
+                        </a>
+                      )}
+                      <span className="text-[11px] text-gray-400 flex-shrink-0 truncate max-w-[40%]" title={`${d.equipeNome || 'Sem equipe'} · ${d.atividadeTitulo}`}>
+                        {d.equipeNome || 'Sem equipe'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
             <div className="p-5 overflow-y-auto flex-1 space-y-4">
               {!atividadeModal.dataInicio && (
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
@@ -1084,39 +1132,6 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 )}
               </div>
 
-              {!!demanda.documentosOutrasEquipes?.length && (
-                <div>
-                  <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5" /> Documentos de outras equipes
-                  </p>
-                  <p className="text-[11px] text-gray-400 mb-2">
-                    Anexados por outras equipes nesta mesma demanda — confira antes de anexar de novo o mesmo arquivo.
-                  </p>
-                  <div className="space-y-1.5">
-                    {demanda.documentosOutrasEquipes.map(d => (
-                      <div key={d.id} className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-gray-50 group">
-                        {d.arquivoPath ? (
-                          <button onClick={() => baixarArquivo(d.id, d.nome)} className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0 text-left">
-                            <FileText className="w-3.5 h-3.5 flex-shrink-0" />
-                            <span className="truncate">{d.nome}</span>
-                            <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
-                          </button>
-                        ) : (
-                          <a href={d.linkDrive} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0">
-                            <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
-                            <span className="truncate">{d.nome}</span>
-                            <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
-                          </a>
-                        )}
-                        <span className="text-[11px] text-gray-400 flex-shrink-0 truncate max-w-[40%]" title={`${d.equipeNome || 'Sem equipe'} · ${d.atividadeTitulo}`}>
-                          {d.equipeNome || 'Sem equipe'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
@@ -1244,7 +1259,9 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 })()}
               </div>
             </div>
+            )}
 
+            {abaAtividadeModal === 'detalhes' && (
             <div className="p-5 border-t border-gray-100 space-y-2">
               {atividadeModal.status === 'AGUARDANDO_INFORMACAO' && isResponsavel(atividadeModal) && (
                 <button onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'EM_ANDAMENTO' })} className="btn-primary w-full justify-center">
@@ -1339,6 +1356,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                 </div>
               )}
             </div>
+            )}
           </div>
         </div>
       )}
