@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { Demanda, Atividade, StatusAtividade, StatusDemanda, User, Equipe, Prioridade } from '@/types'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check, StickyNote, Download } from 'lucide-react'
+import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check, StickyNote, Download, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -1083,6 +1083,39 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   </div>
                 )}
               </div>
+
+              {!!demanda.documentosOutrasEquipes?.length && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5" /> Documentos de outras equipes
+                  </p>
+                  <p className="text-[11px] text-gray-400 mb-2">
+                    Anexados por outras equipes nesta mesma demanda — confira antes de anexar de novo o mesmo arquivo.
+                  </p>
+                  <div className="space-y-1.5">
+                    {demanda.documentosOutrasEquipes.map(d => (
+                      <div key={d.id} className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-gray-50 group">
+                        {d.arquivoPath ? (
+                          <button onClick={() => baixarArquivo(d.id, d.nome)} className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0 text-left">
+                            <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="truncate">{d.nome}</span>
+                            <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
+                          </button>
+                        ) : (
+                          <a href={d.linkDrive} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0">
+                            <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="truncate">{d.nome}</span>
+                            <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
+                          </a>
+                        )}
+                        <span className="text-[11px] text-gray-400 flex-shrink-0 truncate max-w-[40%]" title={`${d.equipeNome || 'Sem equipe'} · ${d.atividadeTitulo}`}>
+                          {d.equipeNome || 'Sem equipe'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <div className="flex items-center justify-between mb-2">

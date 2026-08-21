@@ -232,6 +232,17 @@ export interface Comentario {
   user: { id: string; name: string }
 }
 
+export interface DocumentoOutraEquipe {
+  id: string
+  nome: string
+  versao: number
+  linkDrive: string
+  arquivoPath?: string | null
+  createdAt: string
+  atividadeTitulo: string
+  equipeNome: string | null
+}
+
 export interface Demanda {
   id: string
   gepNumero: string
@@ -248,6 +259,7 @@ export interface Demanda {
   historico?: HistoricoDemanda[]
   pendenciasExternas?: PendenciaExterna[]
   comentarios?: Comentario[]
+  documentosOutrasEquipes?: DocumentoOutraEquipe[]
 }
 
 export interface Log {

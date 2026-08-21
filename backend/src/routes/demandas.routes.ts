@@ -414,14 +414,32 @@ demandasRouter.get('/:id', async (req: AuthRequest, res) => {
     tempos: calcularTemposAtividade(a.createdAt, a.dataInicio, a.dataConclusao),
   }))
 
+  // Documentos das atividades de OUTRAS equipes na mesma demanda: a atividade em si continua
+  // oculta (isolamento entre setores permanece), mas os documentos anexados por ela ficam
+  // visíveis pra download — evita que cada equipe suba de novo o mesmo arquivo que outro setor
+  // já anexou. MASTER/solicitante já veem tudo pela lista normal, então essa lista fica vazia
+  // pra eles (não têm "outra equipe" oculta).
+  const idsAtividadesVisiveis = new Set(atividadesVisiveis.map(a => a.id))
+  const documentosOutrasEquipes = vePorCompleto ? [] : demanda.atividades
+    .filter(a => !idsAtividadesVisiveis.has(a.id))
+    .flatMap(a => a.documentos.map(d => ({
+      id: d.id,
+      nome: d.nome,
+      versao: d.versao,
+      linkDrive: d.linkDrive,
+      arquivoPath: d.arquivoPath,
+      createdAt: d.createdAt,
+      atividadeTitulo: a.titulo,
+      equipeNome: a.equipe?.nome || null,
+    })))
+
   // Mesma lógica do isolamento de atividades: eventos do histórico presos a uma atividade
   // de outra área (criação, status, transferência, documento anexado) ficam ocultos também.
-  const idsVisiveis = new Set(atividadesVisiveis.map(a => a.id))
   const historicoVisivel = vePorCompleto
     ? demanda.historico
-    : demanda.historico.filter(h => !h.atividadeId || idsVisiveis.has(h.atividadeId))
+    : demanda.historico.filter(h => !h.atividadeId || idsAtividadesVisiveis.has(h.atividadeId))
 
-  res.json({ ...demanda, atividades: atividadesComTempos, historico: historicoVisivel })
+  res.json({ ...demanda, atividades: atividadesComTempos, historico: historicoVisivel, documentosOutrasEquipes })
 })
 
 // Reescreve em prosa formal, via IA, o resumo estruturado que o frontend já monta a partir
@@ -1586,18 +1604,27 @@ async function assertPodeGerenciarChecklist(req: AuthRequest, atividade: { respo
   }
 }
 
-// Mesmo isolamento de processos usado em GET /demandas/:id, aplicado a um documento avulso:
-// só quem abriu a demanda, é responsável (usuário/equipe) da atividade dona do documento, ou
-// MASTER pode baixar/verificar o arquivo — nunca "qualquer usuário autenticado".
+// Download/verificação de um documento: liberado pra quem tem QUALQUER envolvimento na
+// demanda (não só na atividade específica dona do documento) — a pedido explícito do usuário,
+// pra que uma equipe veja e baixe documentos anexados por outra equipe na mesma demanda e
+// evite reanexar o mesmo arquivo. Continua restrito a quem tem alguma relação com a demanda
+// (MASTER, solicitante, ou responsável/equipe de QUALQUER atividade dela) — nunca "qualquer
+// usuário autenticado", e nunca de demandas às quais o usuário não tem nenhum vínculo.
 async function assertPodeVerDocumento(req: AuthRequest, documentoId: string) {
   const doc = await prisma.documentoAtividade.findUnique({
     where: { id: documentoId },
-    include: { atividade: { include: { demanda: { select: { solicitanteId: true } } } } },
+    include: {
+      atividade: {
+        include: { demanda: { select: { id: true, solicitanteId: true, atividades: true } } },
+      },
+    },
   })
   if (!doc) throw new AppError('Documento não encontrado', 404)
-  if (req.user!.role !== 'MASTER' && doc.atividade.demanda.solicitanteId !== req.user!.id) {
-    const isResponsavel = await isResponsavelDaAtividade(req.user!.id, doc.atividade)
-    if (!isResponsavel) throw new AppError('Você não possui permissão para acessar este conteúdo.', 403)
+  const uid = req.user!.id
+  if (req.user!.role !== 'MASTER' && doc.atividade.demanda.solicitanteId !== uid) {
+    const equipeIds = await getEquipeIdsDoUsuario(uid)
+    const temVinculoComDemanda = doc.atividade.demanda.atividades.some(a => isResponsavelOuEquipeDaAtividade(a, uid, equipeIds))
+    if (!temVinculoComDemanda) throw new AppError('Você não possui permissão para acessar este conteúdo.', 403)
   }
   return doc
 }
