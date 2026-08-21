@@ -1283,7 +1283,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   </button>
                 </div>
               )}
-              {['EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'DEVOLVIDA', 'REABERTA'].includes(atividadeModal.status) && isResponsavel(atividadeModal) && !showFinalizar && (
+              {['ATRIBUIDA', 'EM_ANDAMENTO', 'AGUARDANDO_INFORMACAO', 'DEVOLVIDA', 'REABERTA'].includes(atividadeModal.status) && (isResponsavel(atividadeModal) || isMaster) && !showFinalizar && (
                 <button onClick={() => setShowTransferir(true)} className="btn-secondary w-full justify-center text-xs">
                   <Repeat className="w-3.5 h-3.5" /> Transferir tarefa
                 </button>
