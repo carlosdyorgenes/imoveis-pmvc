@@ -169,7 +169,9 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
   const inicioMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   const inicioMesAnterior = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)
 
-  const [porStatus, porPrioridade, totalAtrasadas, minhasEquipes, concluidasEsteMes, concluidasMesAnterior, demandasConcluidas, totalAtividadesAtivas, atividadesComDevolucao, demandasAtrasadasComAtividades] = await Promise.all([
+  const isMasterUser = req.user!.role === 'MASTER'
+
+  const [porStatus, porPrioridade, totalAtrasadas, minhasEquipes, concluidasEsteMes, concluidasMesAnterior, demandasConcluidas, totalAtividadesAtivas, atividadesComDevolucao, demandasAtrasadasComAtividades, atividadesAtrasadasTodasEquipes] = await Promise.all([
     prisma.demanda.groupBy({ by: ['status'], _count: true }),
     prisma.demanda.groupBy({ by: ['prioridade'], _count: true, where: { status: { notIn: ['CONCLUIDA', 'CANCELADA'] } } }),
     prisma.demanda.count({ where: { prazo: { lt: new Date() }, status: { notIn: ['CONCLUIDA', 'CANCELADA'] } } }),
@@ -187,6 +189,11 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
       where: { prazo: { lt: new Date() }, status: { notIn: ['CONCLUIDA', 'CANCELADA'] } },
       select: { id: true, atividades: { where: { status: { in: STATUS_ATIVIDADE_ATIVOS as any } }, select: { prazo: true } } },
     }),
+    // Visão consolidada só do Master: atividades atrasadas por prazo próprio, de TODAS as
+    // equipes (diferente de "atrasadasNaMinhaEquipe", restrito às equipes do usuário logado).
+    isMasterUser
+      ? prisma.atividade.count({ where: { prazo: { lt: new Date() }, status: { in: STATUS_ATIVIDADE_ATIVOS as any } } })
+      : Promise.resolve(0),
   ])
 
   const equipeIds = minhasEquipes.map(m => m.equipeId)
@@ -239,6 +246,7 @@ demandasRouter.get('/painel/resumo', async (req: AuthRequest, res) => {
     taxaDevolucao: totalAtividadesAtivas > 0 ? Math.round((atividadesComDevolucao / totalAtividadesAtivas) * 1000) / 10 : 0,
     atrasadasNaMinhaEquipe,
     alertaCruzadoPrazo,
+    atividadesAtrasadasTodasEquipes,
   })
 })
 
@@ -316,7 +324,7 @@ demandasRouter.get('/', async (req: AuthRequest, res) => {
   // "gep" é mantido por compatibilidade (busca só pelo número do GEP); "busca" é a busca
   // textual nova, que cobre GEP, assunto, descrição e interessado — pra achar a demanda por
   // do que ela trata quando não se lembra o número.
-  const { status, gep, busca, responsavelId, atrasadas, prioridade } = req.query as Record<string, string>
+  const { status, gep, busca, responsavelId, atrasadas, atividadesAtrasadas, prioridade } = req.query as Record<string, string>
   const where: Record<string, unknown> = {}
   const andConditions: Record<string, unknown>[] = []
 
@@ -336,6 +344,13 @@ demandasRouter.get('/', async (req: AuthRequest, res) => {
   if (atrasadas === 'true') {
     where.prazo = { lt: new Date() }
     where.status = { notIn: ['CONCLUIDA', 'CANCELADA'] }
+  }
+  // Filtro por atraso de ATIVIDADE (não da demanda) — usado pelo card "Atividades atrasadas"
+  // do Master, que precisa achar demandas com alguma atividade vencida de qualquer equipe.
+  if (atividadesAtrasadas === 'true') {
+    andConditions.push({
+      atividades: { some: { prazo: { lt: new Date() }, status: { in: STATUS_ATIVIDADE_ATIVOS as any } } },
+    })
   }
   if (responsavelId) {
     where.atividades = { some: { OR: [{ responsavelId }, { equipe: { membros: { some: { userId: responsavelId } } } }] } }
