@@ -172,6 +172,16 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const router = useRouter()
   const { user, isMaster } = useAuth()
 
+  // Ao sair desta tela, invalida a listagem de Demandas em cache — sem isso, a tag de
+  // "houve atualização" (ver GET /demandas) ficava presa até o staleTime de 30s expirar ou a
+  // página ser recarregada manualmente, mesmo já tendo sido marcada como vista no backend.
+  useEffect(() => {
+    return () => {
+      qc.invalidateQueries({ queryKey: ['demandas'] })
+      qc.invalidateQueries({ queryKey: ['demandas-painel'] })
+    }
+  }, [qc])
+
   const [showDescricao, setShowDescricao] = useState(false)
   const [showEditarDemanda, setShowEditarDemanda] = useState(false)
   const [editDemandaAssunto, setEditDemandaAssunto] = useState('')
