@@ -381,6 +381,32 @@ demandasRouter.get('/', async (req: AuthRequest, res) => {
     },
     orderBy: { createdAt: 'desc' },
   })
+
+  // Só pro Master: classifica a listagem pela atualização mais recente de cada demanda
+  // (qualquer evento de histórico — status de atividade, documento anexado, edição, etc. —
+  // registrarHistorico cobre praticamente tudo que conta como "atualização"), e marca com
+  // houveAtualizacao as que mudaram desde a última vez que ESTE Master abriu a demanda
+  // (DemandaVisualizacaoMaster, atualizado em GET /:id). A tag some sozinha depois que ele
+  // abre a demanda uma vez.
+  if (req.user!.role === 'MASTER' && demandas.length > 0) {
+    const demandaIds = demandas.map(d => d.id)
+    const [ultimasAtualizacoes, visualizacoes] = await Promise.all([
+      prisma.historicoDemanda.groupBy({ by: ['demandaId'], where: { demandaId: { in: demandaIds } }, _max: { createdAt: true } }),
+      prisma.demandaVisualizacaoMaster.findMany({ where: { userId: req.user!.id, demandaId: { in: demandaIds } } }),
+    ])
+    const ultimaPorDemanda = new Map(ultimasAtualizacoes.map(u => [u.demandaId, u._max.createdAt as Date]))
+    const vistoPorDemanda = new Map(visualizacoes.map(v => [v.demandaId, v.vistoEm]))
+
+    const comOrdenacao = demandas.map(d => {
+      const ultimaAtualizacao = ultimaPorDemanda.get(d.id) || d.createdAt
+      const vistoEm = vistoPorDemanda.get(d.id) || null
+      return { demanda: d, ultimaAtualizacao, houveAtualizacao: !vistoEm || ultimaAtualizacao > vistoEm }
+    })
+    comOrdenacao.sort((a, b) => b.ultimaAtualizacao.getTime() - a.ultimaAtualizacao.getTime())
+
+    return res.json(comOrdenacao.map(({ demanda, houveAtualizacao }) => ({ ...demanda, houveAtualizacao })))
+  }
+
   res.json(demandas)
 })
 
@@ -438,6 +464,16 @@ demandasRouter.get('/:id', async (req: AuthRequest, res) => {
   const historicoVisivel = vePorCompleto
     ? demanda.historico
     : demanda.historico.filter(h => !h.atividadeId || idsAtividadesVisiveis.has(h.atividadeId))
+
+  // Marca como "vista" por este Master agora — some a tag de atualização na listagem até a
+  // próxima mudança registrada no histórico da demanda.
+  if (isMaster) {
+    await prisma.demandaVisualizacaoMaster.upsert({
+      where: { demandaId_userId: { demandaId: demanda.id, userId: uid } },
+      create: { demandaId: demanda.id, userId: uid },
+      update: { vistoEm: new Date() },
+    })
+  }
 
   res.json({ ...demanda, atividades: atividadesComTempos, historico: historicoVisivel, documentosOutrasEquipes })
 })

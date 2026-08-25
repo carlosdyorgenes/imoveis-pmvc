@@ -63,6 +63,7 @@ model User {
   transferenciasOrigem   HistoricoTransferencia[] @relation("TransferenciaDe")
   transferenciasDestino  HistoricoTransferencia[] @relation("TransferenciaPara")
   resumosConsultados     ResumoConsulta[]
+  visualizacoesMaster    DemandaVisualizacaoMaster[]
 
   @@map("users")
 }
@@ -171,6 +172,7 @@ model Demanda {
   pendenciasExternas PendenciaExterna[]
   comentarios        Comentario[]
   resumosConsultados ResumoConsulta[]
+  visualizacoesMaster DemandaVisualizacaoMaster[]
 
   @@index([gepNumero, gepAno])
   @@map("demandas")
@@ -195,6 +197,22 @@ model ResumoConsulta {
 
   @@unique([demandaId, userId])
   @@map("resumo_consultas")
+}
+
+// Marca, por Master, quando ele visualizou por último uma demanda — usada só pra saber se
+// houve atualização (qualquer atividade) desde essa última visita, e mostrar/sumir a tag de
+// aviso na listagem de Demandas. Cada Master tem seu próprio "visto por último".
+model DemandaVisualizacaoMaster {
+  id        String   @id @default(uuid())
+  demandaId String
+  userId    String
+  vistoEm   DateTime @default(now())
+
+  demanda Demanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([demandaId, userId])
+  @@map("demanda_visualizacoes_master")
 }
 
 // Atividade é atribuída a um usuário OU a uma equipe (qualquer membro da equipe pode agir).

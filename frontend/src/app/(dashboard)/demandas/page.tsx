@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Demanda, StatusDemanda, Prioridade, Equipe } from '@/types'
 import Link from 'next/link'
-import { Plus, Search, X, FileStack, AlertTriangle, Download, FileSpreadsheet, ClipboardCheck, Inbox, List, Columns3, Trash2, ArrowUp, Minus, ArrowDown, Timer, RotateCcw, TrendingUp, TrendingDown, CheckCircle2, Gauge } from 'lucide-react'
+import { Plus, Search, X, FileStack, AlertTriangle, AlertCircle, Download, FileSpreadsheet, ClipboardCheck, Inbox, List, Columns3, Trash2, ArrowUp, Minus, ArrowDown, Timer, RotateCcw, TrendingUp, TrendingDown, CheckCircle2, Gauge } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -385,7 +385,14 @@ export default function DemandasPage() {
                           <p className="text-xs text-gray-700 mt-1 line-clamp-2">{d.assunto}</p>
                           {d.interessado && <p className="text-[10px] text-gray-400 mt-0.5">{d.interessado}</p>}
                           <div className="flex items-center justify-between mt-2">
-                            <span className="text-[10px] text-gray-400">{d.atividades?.length || 0} atividade(s)</span>
+                            <span className="text-[10px] text-gray-400 flex items-center gap-1">
+                              {d.atividades?.length || 0} atividade(s)
+                              {isMaster && d.houveAtualizacao && (
+                                <span title="Houve atualização em alguma atividade desde a última vez que você abriu esta demanda">
+                                  <AlertCircle className="w-3 h-3 text-amber-500" />
+                                </span>
+                              )}
+                            </span>
                             {atrasada && <span className="text-[10px] text-red-600 flex items-center gap-0.5"><AlertTriangle className="w-2.5 h-2.5" /> atrasada</span>}
                           </div>
                         </Link>
@@ -462,7 +469,16 @@ export default function DemandasPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-xs text-gray-500 align-top">{d.atividades?.length || 0}</td>
+                    <td className="px-3 py-2 text-xs text-gray-500 align-top">
+                      <span className="inline-flex items-center gap-1">
+                        {d.atividades?.length || 0}
+                        {isMaster && d.houveAtualizacao && (
+                          <span title="Houve atualização em alguma atividade desde a última vez que você abriu esta demanda">
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 text-xs text-gray-400 align-top">
                       {format(new Date(d.createdAt), 'dd/MM/yy', { locale: ptBR })}
                     </td>

@@ -260,6 +260,7 @@ export interface Demanda {
   pendenciasExternas?: PendenciaExterna[]
   comentarios?: Comentario[]
   documentosOutrasEquipes?: DocumentoOutraEquipe[]
+  houveAtualizacao?: boolean
 }
 
 export interface Log {
