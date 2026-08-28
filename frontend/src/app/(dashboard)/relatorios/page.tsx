@@ -161,6 +161,8 @@ export default function RelatoriosPage() {
     },
   ]
 
+  if (!isMaster) return <div className="p-8 text-center text-gray-400">Acesso restrito ao administrador</div>
+
   return (
     <div>
       <div className="mb-6">

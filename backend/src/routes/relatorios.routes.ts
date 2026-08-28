@@ -12,6 +12,9 @@ import { gerarTextoIA } from '../utils/ia'
 
 export const relatoriosRouter = Router()
 relatoriosRouter.use(authenticate)
+// Toda a área de Relatórios é restrita ao Master — nenhum usuário PADRAO deve conseguir gerar
+// ou baixar nenhum relatório, mesmo sabendo a URL da rota diretamente.
+relatoriosRouter.use(requireMaster)
 
 const LOGO_PATH = path.join(__dirname, '..', 'assets', 'brasao.png')
 const LOGO_BUFFER = fs.existsSync(LOGO_PATH) ? fs.readFileSync(LOGO_PATH) : null

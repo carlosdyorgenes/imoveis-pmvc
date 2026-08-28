@@ -23,7 +23,7 @@ const navItems = [
   { href: '/demandas', label: 'Demandas', icon: FileStack },
   { href: '/minha-fila', label: 'Minha Fila', icon: ListTodo },
   { href: '/mapa', label: 'Mapa', icon: MapPin },
-  { href: '/relatorios', label: 'Relatórios', icon: BarChart3 },
+  { href: '/relatorios', label: 'Relatórios', icon: BarChart3, masterOnly: true },
   { href: '/equipes', label: 'Equipes', icon: UsersRound, masterOnly: true },
   { href: '/perfis', label: 'Perfis de Acesso', icon: ShieldCheck, masterOnly: true },
   { href: '/usuarios', label: 'Usuários', icon: Users, masterOnly: true },
