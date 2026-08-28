@@ -7,6 +7,7 @@ RUN npm install
 COPY . .
 RUN npx prisma generate
 RUN npx tsc
+RUN mkdir -p dist/assets && cp -r src/assets/. dist/assets/
 
 FROM node:20-alpine
 WORKDIR /app

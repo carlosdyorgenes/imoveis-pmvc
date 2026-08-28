@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { BarChart3, FileText, FileSpreadsheet, Download, Users, Timer } from 'lucide-react'
+import { BarChart3, FileText, FileSpreadsheet, Download, Users, Timer, Sparkles } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/hooks/useAuth'
 
@@ -51,6 +51,7 @@ export default function RelatoriosPage() {
   const [zona, setZona] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
+  const [statusGeral, setStatusGeral] = useState('')
   const { isMaster } = useAuth()
 
   const { data: indicadores } = useQuery<Indicadores>({
@@ -67,8 +68,13 @@ export default function RelatoriosPage() {
       if (zona && endpoint.includes('imoveis')) params.zona = zona
       if (fromDate && endpoint.includes('ocorrencias')) params.from = fromDate
       if (toDate && endpoint.includes('ocorrencias')) params.to = toDate
+      if (statusGeral && endpoint.includes('geral')) params.status = statusGeral
 
-      const res = await api.get(endpoint, { responseType: 'blob', params })
+      // O Relatório Geral roda uma análise por IA pra cada demanda — pode levar bem mais tempo
+      // que os demais relatórios (que só consultam o banco), então usa um timeout bem maior.
+      const timeout = endpoint.includes('geral') ? 10 * 60_000 : undefined
+
+      const res = await api.get(endpoint, { responseType: 'blob', params, timeout })
       downloadBlob(res.data, filename)
       toast.success('Relatório gerado!')
     } catch { toast.error('Erro ao gerar relatório') }
@@ -76,6 +82,27 @@ export default function RelatoriosPage() {
   }
 
   const reports: ReportConfig[] = [
+    ...(isMaster ? [{
+      title: 'Relatório Geral',
+      description: 'Análise por IA da situação atual de cada demanda (Claude, com ChatGPT como alternativa) — pode levar alguns minutos',
+      icon: <Sparkles className="w-5 h-5 text-indigo-500" />,
+      pdfEndpoint: '/api/relatorios/geral/pdf',
+      excelEndpoint: '/api/relatorios/geral/excel',
+      pdfFilename: 'relatorio_geral_demandas.pdf',
+      excelFilename: 'relatorio_geral_demandas.xlsx',
+      filters: (
+        <select className="input text-xs w-auto" value={statusGeral} onChange={e => setStatusGeral(e.target.value)}>
+          <option value="">Todos os status</option>
+          <option value="ABERTA">Aberta</option>
+          <option value="EM_ANDAMENTO">Em andamento</option>
+          <option value="PARCIALMENTE_CONCLUIDA">Parcialmente concluída</option>
+          <option value="AGUARDANDO_TERCEIRO">Aguardando terceiro</option>
+          <option value="DEVOLVIDA">Devolvida</option>
+          <option value="CONCLUIDA">Concluída</option>
+          <option value="CANCELADA">Cancelada</option>
+        </select>
+      )
+    } as ReportConfig] : []),
     {
       title: 'Relatório de Imóveis',
       description: 'Lista completa de imóveis com filtros por tipo, zona e secretaria',
