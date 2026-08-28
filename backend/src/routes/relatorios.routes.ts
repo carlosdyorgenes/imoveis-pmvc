@@ -19,6 +19,12 @@ function formatDate(d: Date) {
   return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+// Acrescenta quem emitiu ao final do subtítulo de qualquer relatório (PDF ou Excel) — usa o
+// nome de quem está autenticado na requisição, igual em todos os relatórios do sistema.
+function comEmissor(subtitulo: string, req: AuthRequest): string {
+  return `${subtitulo} — Emitido por ${req.user!.name}`
+}
+
 const COR_TITULO = '#1e3a8a'
 const COR_SUBTITULO = '#6b7280'
 const COR_TEXTO = '#111827'
@@ -104,7 +110,7 @@ relatoriosRouter.get('/imoveis/pdf', async (req: AuthRequest, res: Response) => 
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_imoveis.pdf')
   doc.pipe(res)
 
-  desenharCabecalhoPDF(doc, 'Relatório de Imóveis', `Gerado em ${formatDate(new Date())} — ${imoveis.length} imóvel(is)`)
+  desenharCabecalhoPDF(doc, 'Relatório de Imóveis', comEmissor(`Gerado em ${formatDate(new Date())} — ${imoveis.length} imóvel(is)`, req))
 
   imoveis.forEach((im, i) => {
     if (i > 0 && i % 4 === 0) { doc.addPage(); desenharCabecalhoPDF(doc, 'Relatório de Imóveis') }
@@ -133,7 +139,7 @@ relatoriosRouter.get('/imoveis/excel', async (req: AuthRequest, res: Response) =
   montarCabecalhoExcel(
     ws,
     'Relatório de Imóveis — Prefeitura Municipal de Vitória da Conquista',
-    `Gerado em ${formatDate(new Date())} — ${imoveis.length} imóvel(is)`,
+    comEmissor(`Gerado em ${formatDate(new Date())} — ${imoveis.length} imóvel(is)`, req),
     [
       { key: 'inscricao', width: 22 },
       { key: 'logradouro', width: 30 },
@@ -196,7 +202,7 @@ relatoriosRouter.get('/ocorrencias/pdf', async (req: AuthRequest, res: Response)
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_ocorrencias.pdf')
   doc.pipe(res)
 
-  desenharCabecalhoPDF(doc, 'Relatório de Ocorrências', `Gerado em ${formatDate(new Date())} — ${ocorrencias.length} ocorrência(s)`)
+  desenharCabecalhoPDF(doc, 'Relatório de Ocorrências', comEmissor(`Gerado em ${formatDate(new Date())} — ${ocorrencias.length} ocorrência(s)`, req))
 
   ocorrencias.forEach(oc => {
     doc.fontSize(10).fillColor(COR_TITULO).font('Helvetica-Bold').text(`${formatDate(oc.createdAt)} — ${oc.tipo}`)
@@ -232,7 +238,7 @@ relatoriosRouter.get('/ocorrencias/excel', async (req: AuthRequest, res: Respons
   montarCabecalhoExcel(
     ws,
     'Relatório de Ocorrências — Prefeitura Municipal de Vitória da Conquista',
-    `Gerado em ${formatDate(new Date())} — ${ocorrencias.length} ocorrência(s)`,
+    comEmissor(`Gerado em ${formatDate(new Date())} — ${ocorrencias.length} ocorrência(s)`, req),
     [
       { key: 'data', width: 20 },
       { key: 'inscricao', width: 22 },
@@ -287,7 +293,7 @@ relatoriosRouter.get('/tarefas/pdf', async (req: AuthRequest, res: Response) => 
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_tarefas.pdf')
   doc.pipe(res)
 
-  desenharCabecalhoPDF(doc, 'Relatório de Tarefas', `Gerado em ${formatDate(new Date())} — ${tarefas.length} tarefa(s)`)
+  desenharCabecalhoPDF(doc, 'Relatório de Tarefas', comEmissor(`Gerado em ${formatDate(new Date())} — ${tarefas.length} tarefa(s)`, req))
 
   tarefas.forEach(t => {
     const totalCards = t.etapas.reduce((acc, e) => acc + e.cards.length, 0)
@@ -320,7 +326,7 @@ relatoriosRouter.get('/tarefas/excel', async (req: AuthRequest, res: Response) =
   montarCabecalhoExcel(
     ws,
     'Relatório de Tarefas — Prefeitura Municipal de Vitória da Conquista',
-    `Gerado em ${formatDate(new Date())} — ${tarefas.length} tarefa(s)`,
+    comEmissor(`Gerado em ${formatDate(new Date())} — ${tarefas.length} tarefa(s)`, req),
     [
       { key: 'tarefa', width: 25 },
       { key: 'etapa', width: 25 },
@@ -373,7 +379,7 @@ relatoriosRouter.get('/resumo/pdf', async (req: AuthRequest, res: Response) => {
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_resumo.pdf')
   doc.pipe(res)
 
-  desenharCabecalhoPDF(doc, 'Resumo Geral', `Gerado em ${formatDate(new Date())}`)
+  desenharCabecalhoPDF(doc, 'Resumo Geral', comEmissor(`Gerado em ${formatDate(new Date())}`, req))
 
   doc.fontSize(13).fillColor(COR_TITULO).font('Helvetica-Bold').text('Imóveis')
   doc.fillColor(COR_TEXTO).font('Helvetica').fontSize(11).text(`Total de Imóveis: ${totalImoveis}`)
@@ -417,7 +423,7 @@ relatoriosRouter.get('/demandas/pdf', async (req: AuthRequest, res: Response) =>
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_demandas.pdf')
   doc.pipe(res)
 
-  desenharCabecalhoPDF(doc, 'Relatório de Demandas', `Gerado em ${formatDate(new Date())} — ${demandas.length} demanda(s)`)
+  desenharCabecalhoPDF(doc, 'Relatório de Demandas', comEmissor(`Gerado em ${formatDate(new Date())} — ${demandas.length} demanda(s)`, req))
 
   demandas.forEach(d => {
     const atraso = atrasada(d.prazo)
@@ -443,7 +449,7 @@ relatoriosRouter.get('/demandas/excel', async (req: AuthRequest, res: Response) 
   montarCabecalhoExcel(
     ws,
     'Relatório de Demandas — Prefeitura Municipal de Vitória da Conquista',
-    `Gerado em ${formatDate(new Date())} — ${demandas.length} demanda(s)`,
+    comEmissor(`Gerado em ${formatDate(new Date())} — ${demandas.length} demanda(s)`, req),
     [
       { key: 'gep', width: 16 },
       { key: 'assunto', width: 35 },
@@ -486,7 +492,7 @@ relatoriosRouter.get('/demandas/atrasadas/pdf', async (req: AuthRequest, res: Re
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_demandas_atrasadas.pdf')
   doc.pipe(res)
 
-  desenharCabecalhoPDF(doc, 'Demandas Atrasadas', `Gerado em ${formatDate(new Date())} — ${demandas.length} demanda(s)`)
+  desenharCabecalhoPDF(doc, 'Demandas Atrasadas', comEmissor(`Gerado em ${formatDate(new Date())} — ${demandas.length} demanda(s)`, req))
 
   if (demandas.length === 0) {
     doc.fontSize(12).text('Nenhuma demanda atrasada no momento.', { align: 'center' })
@@ -1107,7 +1113,7 @@ relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: 
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_geral_demandas.pdf')
   doc.pipe(res)
 
-  const subtitulo = `Gerado em ${formatDate(new Date())} — ${linhas.length} demanda(s)`
+  const subtitulo = comEmissor(`Gerado em ${formatDate(new Date())} — ${linhas.length} demanda(s)`, req)
   desenharCabecalhoPDF(doc, 'Relatório Geral de Demandas', subtitulo)
 
   linhas.forEach((l, i) => {
@@ -1138,7 +1144,7 @@ relatoriosRouter.get('/geral/excel', requireMaster, async (req: AuthRequest, res
   montarCabecalhoExcel(
     ws,
     'Relatório Geral de Demandas — Prefeitura Municipal de Vitória da Conquista',
-    `Gerado em ${formatDate(new Date())} — ${linhas.length} demanda(s)`,
+    comEmissor(`Gerado em ${formatDate(new Date())} — ${linhas.length} demanda(s)`, req),
     [
       { key: 'gep', width: 18 },
       { key: 'assunto', width: 30 },
