@@ -956,10 +956,12 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
 
   return mapComConcorrencia(demandas, 3, async (d) => {
     const textoEntrada = montarTextoDemandaParaRelatorioGeral(d)
-    // Hash do próprio texto de entrada: se nada mudou nas atividades/checklist/observações/
-    // pendências dessa demanda desde a última vez que o relatório foi gerado, o texto de
-    // entrada é idêntico — reaproveita a análise já feita em vez de chamar a IA de novo.
-    const assinatura = crypto.createHash('sha256').update(textoEntrada).digest('hex')
+    // Hash do texto de entrada JUNTO com o próprio prompt de sistema: se nada mudou nas
+    // atividades/checklist/observações/pendências dessa demanda desde a última vez que o
+    // relatório foi gerado, reaproveita a análise já feita em vez de chamar a IA de novo — mas
+    // trocar o prompt (ex.: ajustar as regras de redação) já invalida o cache de todas as
+    // demandas automaticamente, sem precisar limpar a tabela na mão.
+    const assinatura = crypto.createHash('sha256').update(SYSTEM_PROMPT_RELATORIO_GERAL).update(textoEntrada).digest('hex')
 
     const cache = await prisma.relatorioGeralCache.findUnique({ where: { demandaId: d.id } })
     let historico: string
