@@ -19,6 +19,76 @@ function formatDate(d: Date) {
   return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+const COR_TITULO = '#1e3a8a'
+const COR_SUBTITULO = '#6b7280'
+const COR_TEXTO = '#111827'
+const COR_BORDA = '#e5e7eb'
+
+// Cabeçalho padrão de TODOS os relatórios em PDF: brasão, título, "Prefeitura Municipal de
+// Vitória da Conquista" e uma linha divisória — chamado uma vez no início e de novo a cada
+// nova página, pra manter a identidade visual igual em qualquer relatório do sistema.
+function desenharCabecalhoPDF(doc: PDFKit.PDFDocument, titulo: string, subtitulo?: string) {
+  if (LOGO_BUFFER) {
+    doc.image(LOGO_BUFFER, doc.page.width / 2 - 40, doc.y, { width: 80 })
+    doc.moveDown(4.5)
+  }
+  doc.fontSize(16).fillColor(COR_TITULO).font('Helvetica-Bold').text(titulo, { align: 'center' })
+  doc.fontSize(9).fillColor(COR_SUBTITULO).font('Helvetica').text('Prefeitura Municipal de Vitória da Conquista', { align: 'center' })
+  if (subtitulo) doc.fontSize(8).text(subtitulo, { align: 'center' })
+  doc.moveDown(1)
+  doc.moveTo(40, doc.y).lineTo(doc.page.width - 40, doc.y).strokeColor(COR_TITULO).lineWidth(1.5).stroke()
+  doc.moveDown(0.8)
+  doc.fillColor(COR_TEXTO).font('Helvetica')
+}
+
+// Cabeçalho padrão de TODOS os relatórios em Excel: título e subtítulo mesclados nas duas
+// primeiras linhas, brasão no canto e a linha de cabeçalho da tabela já estilizada (fundo azul,
+// texto branco) — devolve o número da linha onde a tabela de dados deve começar (a próxima).
+function montarCabecalhoExcel(ws: ExcelJS.Worksheet, titulo: string, subtitulo: string, colunas: { key: string; width: number }[], cabecalhos: string[]): number {
+  const numCols = colunas.length
+
+  ws.mergeCells(1, 1, 1, numCols)
+  const tituloCell = ws.getCell(1, 1)
+  tituloCell.value = titulo
+  tituloCell.font = { bold: true, size: 14, color: { argb: 'FF1E3A8A' } }
+  tituloCell.alignment = { horizontal: 'center', vertical: 'middle' }
+  ws.getRow(1).height = 28
+
+  ws.mergeCells(2, 1, 2, numCols)
+  const subCell = ws.getCell(2, 1)
+  subCell.value = subtitulo
+  subCell.font = { italic: true, size: 9, color: { argb: 'FF6B7280' } }
+  subCell.alignment = { horizontal: 'center' }
+  ws.getRow(2).height = 18
+
+  if (LOGO_BUFFER) {
+    const imageId = ws.workbook.addImage({ buffer: LOGO_BUFFER as any, extension: 'png' })
+    ws.addImage(imageId, { tl: { col: 0, row: 0 }, ext: { width: 60, height: 25 } })
+  }
+
+  ws.columns = colunas
+  const headerRowNum = 4
+  ws.getRow(headerRowNum).values = cabecalhos
+  const headerRow = ws.getRow(headerRowNum)
+  headerRow.eachCell(cell => {
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+  })
+  headerRow.height = 20
+
+  return headerRowNum + 1
+}
+
+// Zebra + quebra de linha automática pras linhas de dados de qualquer relatório Excel — chamar
+// logo depois de ws.addRow(...) com o índice (0-based) da linha entre os dados.
+function estilizarLinhaDados(row: ExcelJS.Row, indice: number) {
+  row.eachCell(cell => { cell.alignment = { wrapText: true, vertical: 'top' } })
+  if (indice % 2 === 1) {
+    row.eachCell(cell => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } } })
+  }
+}
+
 // ---- Imóveis PDF ----
 relatoriosRouter.get('/imoveis/pdf', async (req: AuthRequest, res: Response) => {
   const { tipo, zona, secretaria } = req.query as Record<string, string>
@@ -34,17 +104,15 @@ relatoriosRouter.get('/imoveis/pdf', async (req: AuthRequest, res: Response) => 
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_imoveis.pdf')
   doc.pipe(res)
 
-  doc.fontSize(16).text('Relatório de Imóveis - PMVC', { align: 'center' })
-  doc.fontSize(10).text(`Gerado em: ${formatDate(new Date())}`, { align: 'center' })
-  doc.moveDown()
+  desenharCabecalhoPDF(doc, 'Relatório de Imóveis', `Gerado em ${formatDate(new Date())} — ${imoveis.length} imóvel(is)`)
 
   imoveis.forEach((im, i) => {
-    if (i > 0 && i % 4 === 0) doc.addPage()
-    doc.fontSize(9)
-      .text(`Inscrição: ${im.inscricaoImobiliaria} | ${im.tipo} | ${im.zona}`)
+    if (i > 0 && i % 4 === 0) { doc.addPage(); desenharCabecalhoPDF(doc, 'Relatório de Imóveis') }
+    doc.fontSize(10).fillColor(COR_TITULO).font('Helvetica-Bold').text(`${im.inscricaoImobiliaria} — ${im.tipo} / ${im.zona}`)
+    doc.fillColor(COR_TEXTO).font('Helvetica').fontSize(9)
       .text(`Endereço: ${im.logradouro}, ${im.numero || 'S/N'} - ${im.bairro}, ${im.cidade}/${im.estado}`)
       .text(`Secretaria: ${im.secretaria} | Ocorrências: ${im._count.ocorrencias}`)
-      .moveDown(0.3)
+      .moveDown(0.5)
   })
 
   doc.end()
@@ -62,22 +130,27 @@ relatoriosRouter.get('/imoveis/excel', async (req: AuthRequest, res: Response) =
 
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Imóveis')
-  ws.columns = [
-    { header: 'Inscrição Imobiliária', key: 'inscricao', width: 22 },
-    { header: 'Logradouro', key: 'logradouro', width: 30 },
-    { header: 'Número', key: 'numero', width: 10 },
-    { header: 'Bairro', key: 'bairro', width: 20 },
-    { header: 'Cidade', key: 'cidade', width: 20 },
-    { header: 'Estado', key: 'estado', width: 8 },
-    { header: 'Secretaria', key: 'secretaria', width: 25 },
-    { header: 'Tipo', key: 'tipo', width: 12 },
-    { header: 'Zona', key: 'zona', width: 12 },
-    { header: 'Ocorrências', key: 'ocorrencias', width: 14 },
-    { header: 'Cadastrado em', key: 'createdAt', width: 18 },
-  ]
-  ws.getRow(1).font = { bold: true }
-  imoveis.forEach(im => {
-    ws.addRow({
+  montarCabecalhoExcel(
+    ws,
+    'Relatório de Imóveis — Prefeitura Municipal de Vitória da Conquista',
+    `Gerado em ${formatDate(new Date())} — ${imoveis.length} imóvel(is)`,
+    [
+      { key: 'inscricao', width: 22 },
+      { key: 'logradouro', width: 30 },
+      { key: 'numero', width: 10 },
+      { key: 'bairro', width: 20 },
+      { key: 'cidade', width: 20 },
+      { key: 'estado', width: 8 },
+      { key: 'secretaria', width: 25 },
+      { key: 'tipo', width: 12 },
+      { key: 'zona', width: 12 },
+      { key: 'ocorrencias', width: 14 },
+      { key: 'createdAt', width: 18 },
+    ],
+    ['Inscrição Imobiliária', 'Logradouro', 'Número', 'Bairro', 'Cidade', 'Estado', 'Secretaria', 'Tipo', 'Zona', 'Ocorrências', 'Cadastrado em']
+  )
+  imoveis.forEach((im, i) => {
+    const row = ws.addRow({
       inscricao: im.inscricaoImobiliaria,
       logradouro: im.logradouro,
       numero: im.numero,
@@ -90,6 +163,7 @@ relatoriosRouter.get('/imoveis/excel', async (req: AuthRequest, res: Response) =
       ocorrencias: im._count.ocorrencias,
       createdAt: formatDate(im.createdAt)
     })
+    estilizarLinhaDados(row, i)
   })
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -122,16 +196,15 @@ relatoriosRouter.get('/ocorrencias/pdf', async (req: AuthRequest, res: Response)
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_ocorrencias.pdf')
   doc.pipe(res)
 
-  doc.fontSize(16).text('Relatório de Ocorrências - PMVC', { align: 'center' })
-  doc.fontSize(10).text(`Gerado em: ${formatDate(new Date())} | Total: ${ocorrencias.length}`, { align: 'center' })
-  doc.moveDown()
+  desenharCabecalhoPDF(doc, 'Relatório de Ocorrências', `Gerado em ${formatDate(new Date())} — ${ocorrencias.length} ocorrência(s)`)
 
   ocorrencias.forEach(oc => {
-    doc.fontSize(9)
-      .text(`Data: ${formatDate(oc.createdAt)} | Usuário: ${oc.user.name} | Tipo: ${oc.tipo}`)
+    doc.fontSize(10).fillColor(COR_TITULO).font('Helvetica-Bold').text(`${formatDate(oc.createdAt)} — ${oc.tipo}`)
+    doc.fillColor(COR_TEXTO).font('Helvetica').fontSize(9)
       .text(`Imóvel: ${oc.imovel.inscricaoImobiliaria} - ${oc.imovel.logradouro}, ${oc.imovel.bairro}`)
+      .text(`Usuário: ${oc.user.name}`)
       .text(`Ocorrência: ${oc.descricao}`)
-      .moveDown(0.5)
+      .moveDown(0.6)
   })
 
   doc.end()
@@ -156,17 +229,22 @@ relatoriosRouter.get('/ocorrencias/excel', async (req: AuthRequest, res: Respons
 
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Ocorrências')
-  ws.columns = [
-    { header: 'Data', key: 'data', width: 20 },
-    { header: 'Inscrição', key: 'inscricao', width: 22 },
-    { header: 'Endereço', key: 'endereco', width: 35 },
-    { header: 'Tipo', key: 'tipo', width: 14 },
-    { header: 'Descrição', key: 'descricao', width: 50 },
-    { header: 'Usuário', key: 'usuario', width: 20 },
-  ]
-  ws.getRow(1).font = { bold: true }
-  ocorrencias.forEach(oc => {
-    ws.addRow({
+  montarCabecalhoExcel(
+    ws,
+    'Relatório de Ocorrências — Prefeitura Municipal de Vitória da Conquista',
+    `Gerado em ${formatDate(new Date())} — ${ocorrencias.length} ocorrência(s)`,
+    [
+      { key: 'data', width: 20 },
+      { key: 'inscricao', width: 22 },
+      { key: 'endereco', width: 35 },
+      { key: 'tipo', width: 14 },
+      { key: 'descricao', width: 50 },
+      { key: 'usuario', width: 20 },
+    ],
+    ['Data', 'Inscrição', 'Endereço', 'Tipo', 'Descrição', 'Usuário']
+  )
+  ocorrencias.forEach((oc, i) => {
+    const row = ws.addRow({
       data: formatDate(oc.createdAt),
       inscricao: oc.imovel.inscricaoImobiliaria,
       endereco: `${oc.imovel.logradouro}, ${oc.imovel.bairro}`,
@@ -174,6 +252,7 @@ relatoriosRouter.get('/ocorrencias/excel', async (req: AuthRequest, res: Respons
       descricao: oc.descricao,
       usuario: oc.user.name
     })
+    estilizarLinhaDados(row, i)
   })
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -208,24 +287,22 @@ relatoriosRouter.get('/tarefas/pdf', async (req: AuthRequest, res: Response) => 
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_tarefas.pdf')
   doc.pipe(res)
 
-  doc.fontSize(16).text('Relatório de Tarefas - PMVC', { align: 'center' })
-  doc.fontSize(10).text(`Gerado em: ${formatDate(new Date())}`, { align: 'center' })
-  doc.moveDown()
+  desenharCabecalhoPDF(doc, 'Relatório de Tarefas', `Gerado em ${formatDate(new Date())} — ${tarefas.length} tarefa(s)`)
 
   tarefas.forEach(t => {
     const totalCards = t.etapas.reduce((acc, e) => acc + e.cards.length, 0)
-    doc.fontSize(13).fillColor('#1e40af').text(`Tarefa: ${t.titulo} (${totalCards} imóvel(is))`)
-    doc.fillColor('#000000')
+    doc.fontSize(12).fillColor(COR_TITULO).font('Helvetica-Bold').text(`${t.titulo} (${totalCards} imóvel(is))`)
+    doc.font('Helvetica')
     t.etapas.forEach(e => {
-      doc.fontSize(11).fillColor('#374151').text(`  Etapa: ${e.titulo} (${e.cards.length})`)
-      doc.fillColor('#000000')
+      doc.fontSize(10).fillColor('#374151').font('Helvetica-Bold').text(`  ${e.titulo} (${e.cards.length})`)
+      doc.fillColor(COR_TEXTO).font('Helvetica')
       e.cards.forEach(c => {
         const concluidos = c.passos.filter(p => p.concluido).length
         const progresso = c.passos.length > 0 ? ` | Passos: ${concluidos}/${c.passos.length}` : ''
         doc.fontSize(9).text(`    • ${c.imovel.inscricaoImobiliaria} - ${c.imovel.logradouro}, ${c.imovel.bairro} | Resp: ${c.user.name}${progresso}`)
       })
     })
-    doc.moveDown(0.5)
+    doc.moveDown(0.6)
   })
 
   doc.end()
@@ -240,22 +317,28 @@ relatoriosRouter.get('/tarefas/excel', async (req: AuthRequest, res: Response) =
 
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Tarefas')
-  ws.columns = [
-    { header: 'Tarefa', key: 'tarefa', width: 25 },
-    { header: 'Etapa', key: 'etapa', width: 25 },
-    { header: 'Inscrição', key: 'inscricao', width: 22 },
-    { header: 'Endereço', key: 'endereco', width: 40 },
-    { header: 'Responsável', key: 'responsavel', width: 20 },
-    { header: 'Passos', key: 'passos', width: 12 },
-    { header: 'Adicionado em', key: 'data', width: 20 },
-    { header: 'Observações', key: 'obs', width: 30 },
-  ]
-  ws.getRow(1).font = { bold: true }
+  montarCabecalhoExcel(
+    ws,
+    'Relatório de Tarefas — Prefeitura Municipal de Vitória da Conquista',
+    `Gerado em ${formatDate(new Date())} — ${tarefas.length} tarefa(s)`,
+    [
+      { key: 'tarefa', width: 25 },
+      { key: 'etapa', width: 25 },
+      { key: 'inscricao', width: 22 },
+      { key: 'endereco', width: 40 },
+      { key: 'responsavel', width: 20 },
+      { key: 'passos', width: 12 },
+      { key: 'data', width: 20 },
+      { key: 'obs', width: 30 },
+    ],
+    ['Tarefa', 'Etapa', 'Inscrição', 'Endereço', 'Responsável', 'Passos', 'Adicionado em', 'Observações']
+  )
+  let indiceLinha = 0
   tarefas.forEach(t => {
     t.etapas.forEach(e => {
       e.cards.forEach(c => {
         const concluidos = c.passos.filter(p => p.concluido).length
-        ws.addRow({
+        const row = ws.addRow({
           tarefa: t.titulo,
           etapa: e.titulo,
           inscricao: c.imovel.inscricaoImobiliaria,
@@ -265,6 +348,7 @@ relatoriosRouter.get('/tarefas/excel', async (req: AuthRequest, res: Response) =
           data: formatDate(c.createdAt),
           obs: c.observacoes || ''
         })
+        estilizarLinhaDados(row, indiceLinha++)
       })
     })
   })
@@ -289,17 +373,16 @@ relatoriosRouter.get('/resumo/pdf', async (req: AuthRequest, res: Response) => {
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_resumo.pdf')
   doc.pipe(res)
 
-  doc.fontSize(18).text('Resumo Geral - PMVC', { align: 'center' })
-  doc.fontSize(10).text(`Gerado em: ${formatDate(new Date())}`, { align: 'center' })
-  doc.moveDown()
+  desenharCabecalhoPDF(doc, 'Resumo Geral', `Gerado em ${formatDate(new Date())}`)
 
-  doc.fontSize(14).text('Imóveis')
-  doc.fontSize(11).text(`Total de Imóveis: ${totalImoveis}`)
+  doc.fontSize(13).fillColor(COR_TITULO).font('Helvetica-Bold').text('Imóveis')
+  doc.fillColor(COR_TEXTO).font('Helvetica').fontSize(11).text(`Total de Imóveis: ${totalImoveis}`)
   porTipo.forEach(g => doc.text(`  • ${g.tipo}: ${g._count}`))
   doc.moveDown(0.5)
   porZona.forEach(g => doc.text(`  • ${g.zona}: ${g._count}`))
   doc.moveDown()
-  doc.fontSize(11).text(`Total de Ocorrências: ${totalOcorrencias}`)
+  doc.fontSize(13).fillColor(COR_TITULO).font('Helvetica-Bold').text('Ocorrências e Tarefas')
+  doc.fillColor(COR_TEXTO).font('Helvetica').fontSize(11).text(`Total de Ocorrências: ${totalOcorrencias}`)
   doc.text(`Total de Tarefas: ${totalTarefas}`)
 
   doc.end()
@@ -334,20 +417,18 @@ relatoriosRouter.get('/demandas/pdf', async (req: AuthRequest, res: Response) =>
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_demandas.pdf')
   doc.pipe(res)
 
-  doc.fontSize(16).text('Relatório de Demandas - PMVC', { align: 'center' })
-  doc.fontSize(10).text(`Gerado em: ${formatDate(new Date())}`, { align: 'center' })
-  doc.moveDown()
+  desenharCabecalhoPDF(doc, 'Relatório de Demandas', `Gerado em ${formatDate(new Date())} — ${demandas.length} demanda(s)`)
 
   demandas.forEach(d => {
     const atraso = atrasada(d.prazo)
-    doc.fontSize(11).fillColor(atraso ? '#dc2626' : '#1e40af')
+    doc.fontSize(11).fillColor(atraso ? '#dc2626' : COR_TITULO).font('Helvetica-Bold')
       .text(`GEP ${d.gepNumero}/${d.gepAno} — ${d.assunto}${atraso ? ' [ATRASADA]' : ''}`)
-    doc.fillColor('#000000').fontSize(9)
+    doc.fillColor(COR_TEXTO).font('Helvetica').fontSize(9)
       .text(`  Status: ${d.status} | Solicitante: ${d.solicitante.name}${d.prazo ? ` | Prazo: ${formatDate(d.prazo)}` : ''}`)
     d.atividades.forEach(a => {
       doc.text(`    • ${a.titulo} [${a.status}] — ${a.equipe ? `Equipe: ${a.equipe.nome}` : `Resp: ${a.responsavel?.name || '—'}`}`)
     })
-    doc.moveDown(0.5)
+    doc.moveDown(0.6)
   })
 
   doc.end()
@@ -359,18 +440,23 @@ relatoriosRouter.get('/demandas/excel', async (req: AuthRequest, res: Response) 
 
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Demandas')
-  ws.columns = [
-    { header: 'GEP', key: 'gep', width: 16 },
-    { header: 'Assunto', key: 'assunto', width: 35 },
-    { header: 'Status', key: 'status', width: 18 },
-    { header: 'Solicitante', key: 'solicitante', width: 20 },
-    { header: 'Prazo', key: 'prazo', width: 18 },
-    { header: 'Atrasada', key: 'atrasada', width: 10 },
-    { header: 'Atividades', key: 'atividades', width: 12 },
-  ]
-  ws.getRow(1).font = { bold: true }
-  demandas.forEach(d => {
-    ws.addRow({
+  montarCabecalhoExcel(
+    ws,
+    'Relatório de Demandas — Prefeitura Municipal de Vitória da Conquista',
+    `Gerado em ${formatDate(new Date())} — ${demandas.length} demanda(s)`,
+    [
+      { key: 'gep', width: 16 },
+      { key: 'assunto', width: 35 },
+      { key: 'status', width: 18 },
+      { key: 'solicitante', width: 20 },
+      { key: 'prazo', width: 18 },
+      { key: 'atrasada', width: 10 },
+      { key: 'atividades', width: 12 },
+    ],
+    ['GEP', 'Assunto', 'Status', 'Solicitante', 'Prazo', 'Atrasada', 'Atividades']
+  )
+  demandas.forEach((d, i) => {
+    const row = ws.addRow({
       gep: `${d.gepNumero}/${d.gepAno}`,
       assunto: d.assunto,
       status: d.status,
@@ -379,6 +465,7 @@ relatoriosRouter.get('/demandas/excel', async (req: AuthRequest, res: Response) 
       atrasada: atrasada(d.prazo) ? 'SIM' : 'NÃO',
       atividades: d.atividades.length,
     })
+    estilizarLinhaDados(row, i)
   })
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -399,17 +486,15 @@ relatoriosRouter.get('/demandas/atrasadas/pdf', async (req: AuthRequest, res: Re
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_demandas_atrasadas.pdf')
   doc.pipe(res)
 
-  doc.fontSize(16).fillColor('#dc2626').text('Demandas Atrasadas - PMVC', { align: 'center' })
-  doc.fillColor('#000000').fontSize(10).text(`Gerado em: ${formatDate(new Date())}`, { align: 'center' })
-  doc.moveDown()
+  desenharCabecalhoPDF(doc, 'Demandas Atrasadas', `Gerado em ${formatDate(new Date())} — ${demandas.length} demanda(s)`)
 
   if (demandas.length === 0) {
     doc.fontSize(12).text('Nenhuma demanda atrasada no momento.', { align: 'center' })
   }
   demandas.forEach(d => {
-    doc.fontSize(11).text(`GEP ${d.gepNumero}/${d.gepAno} — ${d.assunto}`)
-    doc.fontSize(9).text(`  Prazo vencido em: ${formatDate(d.prazo!)} | Status: ${d.status} | Solicitante: ${d.solicitante.name}`)
-    doc.moveDown(0.3)
+    doc.fontSize(11).fillColor('#dc2626').font('Helvetica-Bold').text(`GEP ${d.gepNumero}/${d.gepAno} — ${d.assunto}`)
+    doc.fillColor(COR_TEXTO).font('Helvetica').fontSize(9).text(`  Prazo vencido em: ${formatDate(d.prazo!)} | Status: ${d.status} | Solicitante: ${d.solicitante.name}`)
+    doc.moveDown(0.4)
   })
 
   doc.end()
@@ -1022,32 +1107,22 @@ relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: 
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_geral_demandas.pdf')
   doc.pipe(res)
 
-  const desenharCabecalho = () => {
-    if (LOGO_BUFFER) doc.image(LOGO_BUFFER, doc.page.width / 2 - 40, doc.y, { width: 80 })
-    doc.moveDown(LOGO_BUFFER ? 4.5 : 0)
-    doc.fontSize(16).fillColor('#1e3a8a').font('Helvetica-Bold').text('Relatório Geral de Demandas', { align: 'center' })
-    doc.fontSize(9).fillColor('#6b7280').font('Helvetica').text('Prefeitura Municipal de Vitória da Conquista', { align: 'center' })
-    doc.fontSize(8).text(`Gerado em ${formatDate(new Date())} — ${linhas.length} demanda(s)`, { align: 'center' })
-    doc.moveDown(1)
-    doc.moveTo(40, doc.y).lineTo(doc.page.width - 40, doc.y).strokeColor('#1e3a8a').lineWidth(1.5).stroke()
-    doc.moveDown(0.8)
-  }
-
-  desenharCabecalho()
+  const subtitulo = `Gerado em ${formatDate(new Date())} — ${linhas.length} demanda(s)`
+  desenharCabecalhoPDF(doc, 'Relatório Geral de Demandas', subtitulo)
 
   linhas.forEach((l, i) => {
     // Reserva um espaço mínimo pro bloco não começar colado no rodapé da página.
     if (doc.y > doc.page.height - 160) {
       doc.addPage()
-      desenharCabecalho()
+      desenharCabecalhoPDF(doc, 'Relatório Geral de Demandas')
     }
     const topoBloco = doc.y
-    doc.fontSize(11).fillColor('#1e3a8a').font('Helvetica-Bold').text(`GEP ${l.gep} — ${l.assunto}`, 44, topoBloco + 6, { width: doc.page.width - 88 })
-    doc.fontSize(8).fillColor('#6b7280').font('Helvetica').text(`Status: ${l.status}  |  Criada em: ${formatDate(l.createdAt)}`, 44, doc.y + 2)
+    doc.fontSize(11).fillColor(COR_TITULO).font('Helvetica-Bold').text(`GEP ${l.gep} — ${l.assunto}`, 44, topoBloco + 6, { width: doc.page.width - 88 })
+    doc.fontSize(8).fillColor(COR_SUBTITULO).font('Helvetica').text(`Status: ${l.status}  |  Criada em: ${formatDate(l.createdAt)}`, 44, doc.y + 2)
     doc.moveDown(0.3)
-    doc.fontSize(9).fillColor('#111827').font('Helvetica').text(l.historico, 44, doc.y, { width: doc.page.width - 88, align: 'justify' })
+    doc.fontSize(9).fillColor(COR_TEXTO).font('Helvetica').text(l.historico, 44, doc.y, { width: doc.page.width - 88, align: 'justify' })
     const baseBloco = doc.y + 8
-    doc.roundedRect(40, topoBloco, doc.page.width - 80, baseBloco - topoBloco, 4).strokeColor('#e5e7eb').lineWidth(1).stroke()
+    doc.roundedRect(40, topoBloco, doc.page.width - 80, baseBloco - topoBloco, 4).strokeColor(COR_BORDA).lineWidth(1).stroke()
     doc.y = baseBloco + 12
   })
 
@@ -1060,51 +1135,23 @@ relatoriosRouter.get('/geral/excel', requireMaster, async (req: AuthRequest, res
 
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Relatório Geral')
-
-  ws.mergeCells('A1:E1')
-  const tituloCell = ws.getCell('A1')
-  tituloCell.value = 'Relatório Geral de Demandas — Prefeitura Municipal de Vitória da Conquista'
-  tituloCell.font = { bold: true, size: 14, color: { argb: 'FF1E3A8A' } }
-  tituloCell.alignment = { horizontal: 'center', vertical: 'middle' }
-  ws.getRow(1).height = 28
-
-  ws.mergeCells('A2:E2')
-  const subCell = ws.getCell('A2')
-  subCell.value = `Gerado em ${formatDate(new Date())} — ${linhas.length} demanda(s)`
-  subCell.font = { italic: true, size: 9, color: { argb: 'FF6B7280' } }
-  subCell.alignment = { horizontal: 'center' }
-  ws.getRow(2).height = 18
-
-  if (LOGO_BUFFER) {
-    const imageId = wb.addImage({ buffer: LOGO_BUFFER as any, extension: 'png' })
-    ws.addImage(imageId, { tl: { col: 0, row: 0 }, ext: { width: 60, height: 25 } })
-  }
-
-  ws.addRow([])
-  const headerRowNum = 4
-  ws.getRow(headerRowNum).values = ['Nº da Demanda (GEP)', 'Assunto', 'Status', 'Data de Criação', 'Histórico']
-  const headerRow = ws.getRow(headerRowNum)
-  headerRow.eachCell(cell => {
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }
-    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-  })
-  headerRow.height = 20
-
-  ws.columns = [
-    { key: 'gep', width: 18 },
-    { key: 'assunto', width: 30 },
-    { key: 'status', width: 20 },
-    { key: 'createdAt', width: 18 },
-    { key: 'historico', width: 90 },
-  ]
+  montarCabecalhoExcel(
+    ws,
+    'Relatório Geral de Demandas — Prefeitura Municipal de Vitória da Conquista',
+    `Gerado em ${formatDate(new Date())} — ${linhas.length} demanda(s)`,
+    [
+      { key: 'gep', width: 18 },
+      { key: 'assunto', width: 30 },
+      { key: 'status', width: 20 },
+      { key: 'createdAt', width: 18 },
+      { key: 'historico', width: 90 },
+    ],
+    ['Nº da Demanda (GEP)', 'Assunto', 'Status', 'Data de Criação', 'Histórico']
+  )
 
   linhas.forEach((l, i) => {
     const row = ws.addRow({ gep: l.gep, assunto: l.assunto, status: l.status, createdAt: formatDate(l.createdAt), historico: l.historico })
-    row.eachCell(cell => { cell.alignment = { wrapText: true, vertical: 'top' } })
-    if (i % 2 === 1) {
-      row.eachCell(cell => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } } })
-    }
+    estilizarLinhaDados(row, i)
   })
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
