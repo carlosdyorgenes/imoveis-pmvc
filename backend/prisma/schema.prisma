@@ -173,6 +173,7 @@ model Demanda {
   comentarios        Comentario[]
   resumosConsultados ResumoConsulta[]
   visualizacoesMaster DemandaVisualizacaoMaster[]
+  relatorioGeralCache RelatorioGeralCache?
 
   @@index([gepNumero, gepAno])
   @@map("demandas")
@@ -197,6 +198,24 @@ model ResumoConsulta {
 
   @@unique([demandaId, userId])
   @@map("resumo_consultas")
+}
+
+// Cache global (não por usuário — é um relatório oficial, não um rascunho pessoal) do texto de
+// IA gerado para o Relatório Geral. Uma "assinatura" (hash do texto de entrada montado a partir
+// das atividades/checklist/observações/pendências) decide se a demanda mudou desde a última vez
+// que o relatório foi gerado — se não mudou, reaproveita o texto salvo em vez de gastar de novo
+// com a IA.
+model RelatorioGeralCache {
+  id           String   @id @default(uuid())
+  demandaId    String   @unique
+  assinatura   String
+  historico    String
+  provedor     String
+  atualizadoEm DateTime @updatedAt
+
+  demanda Demanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)
+
+  @@map("relatorio_geral_cache")
 }
 
 // Marca, por Master, quando ele visualizou por último uma demanda — usada só pra saber se

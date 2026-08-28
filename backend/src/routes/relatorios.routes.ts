@@ -3,6 +3,7 @@ import PDFDocument from 'pdfkit'
 import ExcelJS from 'exceljs'
 import fs from 'fs'
 import path from 'path'
+import crypto from 'crypto'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireMaster, AuthRequest } from '../middleware/auth'
 import { AppError } from '../middleware/errorHandler'
@@ -1090,14 +1091,30 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
 
   return mapComConcorrencia(demandas, 3, async (d) => {
     const textoEntrada = montarTextoDemandaParaRelatorioGeral(d)
+    // Hash do próprio texto de entrada: se nada mudou nas atividades/checklist/observações/
+    // pendências dessa demanda desde a última vez que o relatório foi gerado, o texto de
+    // entrada é idêntico — reaproveita a análise já feita em vez de chamar a IA de novo.
+    const assinatura = crypto.createHash('sha256').update(textoEntrada).digest('hex')
+
+    const cache = await prisma.relatorioGeralCache.findUnique({ where: { demandaId: d.id } })
     let historico: string
-    try {
-      const resultado = await gerarTextoIA(SYSTEM_PROMPT_RELATORIO_GERAL, textoEntrada)
-      historico = resultado.texto
-    } catch (e) {
-      // Uma demanda com falha na IA não deve derrubar o relatório inteiro — registra o motivo
-      // nessa linha e segue para as demais.
-      historico = `[Não foi possível gerar a análise automática desta demanda: ${e instanceof AppError ? e.message : 'erro inesperado'}]`
+    if (cache && cache.assinatura === assinatura) {
+      historico = cache.historico
+    } else {
+      try {
+        const resultado = await gerarTextoIA(SYSTEM_PROMPT_RELATORIO_GERAL, textoEntrada)
+        historico = resultado.texto
+        await prisma.relatorioGeralCache.upsert({
+          where: { demandaId: d.id },
+          create: { demandaId: d.id, assinatura, historico, provedor: resultado.provedor },
+          update: { assinatura, historico, provedor: resultado.provedor },
+        })
+      } catch (e) {
+        // Uma demanda com falha na IA não deve derrubar o relatório inteiro — registra o motivo
+        // nessa linha e segue para as demais, sem mexer no cache (mantém a última análise válida
+        // pra próxima tentativa, se a atividade não mudar de novo antes disso).
+        historico = `[Não foi possível gerar a análise automática desta demanda: ${e instanceof AppError ? e.message : 'erro inesperado'}]`
+      }
     }
     return { gep: `${d.gepNumero}/${d.gepAno}`, assunto: d.assunto, status: d.status, createdAt: d.createdAt, historico }
   })
