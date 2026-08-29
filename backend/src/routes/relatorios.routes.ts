@@ -34,13 +34,18 @@ const COR_SUBTITULO = '#6b7280'
 const COR_TEXTO = '#111827'
 const COR_BORDA = '#e5e7eb'
 
-// Cabeçalho padrão de TODOS os relatórios em PDF: brasão, título, "Prefeitura Municipal de
-// Vitória da Conquista" e uma linha divisória — chamado uma vez no início e de novo a cada
-// nova página, pra manter a identidade visual igual em qualquer relatório do sistema.
+// Proporção real do brasão.png (640x262) — usada pra calcular a altura exata a partir da
+// largura escolhida, em vez de "chutar" um moveDown() e deixar espaço em branco sobrando.
+const LOGO_RAZAO_ALTURA = 262 / 640
+const LOGO_LARGURA = 130
+
+// Cabeçalho padrão de TODOS os relatórios em PDF: brasão, título e "Prefeitura Municipal de
+// Vitória da Conquista" — aparece só na primeira página de cada relatório (páginas seguintes,
+// quando o conteúdo estoura, não repetem o cabeçalho).
 function desenharCabecalhoPDF(doc: PDFKit.PDFDocument, titulo: string, subtitulo?: string) {
   if (LOGO_BUFFER) {
-    doc.image(LOGO_BUFFER, doc.page.width / 2 - 40, doc.y, { width: 80 })
-    doc.moveDown(4.5)
+    doc.image(LOGO_BUFFER, doc.page.width / 2 - LOGO_LARGURA / 2, doc.y, { width: LOGO_LARGURA })
+    doc.y += LOGO_LARGURA * LOGO_RAZAO_ALTURA + 4
   }
   doc.fontSize(16).fillColor(COR_TITULO).font('Helvetica-Bold').text(titulo, { align: 'center' })
   doc.fontSize(9).fillColor(COR_SUBTITULO).font('Helvetica').text('Prefeitura Municipal de Vitória da Conquista', { align: 'center' })
@@ -117,7 +122,7 @@ relatoriosRouter.get('/imoveis/pdf', async (req: AuthRequest, res: Response) => 
   desenharCabecalhoPDF(doc, 'Relatório de Imóveis', comEmissor(`Gerado em ${formatDate(new Date())} — ${imoveis.length} imóvel(is)`, req))
 
   imoveis.forEach((im, i) => {
-    if (i > 0 && i % 4 === 0) { doc.addPage(); desenharCabecalhoPDF(doc, 'Relatório de Imóveis') }
+    if (i > 0 && i % 4 === 0) doc.addPage()
     doc.fontSize(10).fillColor(COR_TITULO).font('Helvetica-Bold').text(`${im.inscricaoImobiliaria} — ${im.tipo} / ${im.zona}`)
     doc.fillColor(COR_TEXTO).font('Helvetica').fontSize(9)
       .text(`Endereço: ${im.logradouro}, ${im.numero || 'S/N'} - ${im.bairro}, ${im.cidade}/${im.estado}`)
@@ -1004,11 +1009,9 @@ relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: 
   desenharCabecalhoPDF(doc, 'Relatório Geral de Demandas', subtitulo)
 
   linhas.forEach((l, i) => {
-    // Reserva um espaço mínimo pro bloco não começar colado no rodapé da página.
-    if (doc.y > doc.page.height - 160) {
-      doc.addPage()
-      desenharCabecalhoPDF(doc, 'Relatório Geral de Demandas')
-    }
+    // Reserva um espaço mínimo pro bloco não começar colado no rodapé da página. O cabeçalho
+    // (logo/título) não se repete — só aparece na primeira página do relatório.
+    if (doc.y > doc.page.height - 160) doc.addPage()
     const topoBloco = doc.y
     doc.fontSize(11).fillColor(COR_TITULO).font('Helvetica-Bold').text(`GEP ${l.gep} — ${l.assunto}`, 44, topoBloco + 6, { width: doc.page.width - 88 })
     doc.fontSize(8).fillColor(COR_SUBTITULO).font('Helvetica').text(`Status: ${l.status}  |  Criada em: ${formatDate(l.createdAt)}`, 44, doc.y + 2)
