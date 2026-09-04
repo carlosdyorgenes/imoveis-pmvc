@@ -943,10 +943,19 @@ interface LinhaRelatorioGeral {
   assunto: string
   status: string
   createdAt: Date
+  updatedAt: Date
   historico: string
+  // true = a análise foi gerada (ou regerada) agora porque algo mudou desde o último relatório;
+  // false = nada mudou, reaproveitou a análise já cacheada.
+  atualizado: boolean
 }
 
-async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise<LinhaRelatorioGeral[]> {
+interface LinhasRelatorioGeralAgrupadas {
+  emAndamento: LinhaRelatorioGeral[]
+  concluidas: LinhaRelatorioGeral[]
+}
+
+async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise<LinhasRelatorioGeralAgrupadas> {
   const where: Record<string, unknown> = {}
   if (query.status) where.status = query.status
 
@@ -962,7 +971,7 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     orderBy: { createdAt: 'desc' },
   })
 
-  return mapComConcorrencia(demandas, 3, async (d) => {
+  const linhas = await mapComConcorrencia(demandas, 3, async (d): Promise<LinhaRelatorioGeral> => {
     const textoEntrada = montarTextoDemandaParaRelatorioGeral(d)
     // Hash do texto de entrada JUNTO com o próprio prompt de sistema: se nada mudou nas
     // atividades/checklist/observações/pendências dessa demanda desde a última vez que o
@@ -973,9 +982,12 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
 
     const cache = await prisma.relatorioGeralCache.findUnique({ where: { demandaId: d.id } })
     let historico: string
+    let atualizado: boolean
     if (cache && cache.assinatura === assinatura) {
       historico = cache.historico
+      atualizado = false
     } else {
+      atualizado = true
       try {
         const resultado = await gerarTextoIA(SYSTEM_PROMPT_RELATORIO_GERAL, textoEntrada)
         historico = resultado.texto
@@ -991,64 +1003,158 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
         historico = `[Não foi possível gerar a análise automática desta demanda: ${e instanceof AppError ? e.message : 'erro inesperado'}]`
       }
     }
-    return { gep: `${d.gepNumero}/${d.gepAno}`, assunto: d.assunto, status: d.status, createdAt: d.createdAt, historico }
+    return { gep: `${d.gepNumero}/${d.gepAno}`, assunto: d.assunto, status: d.status, createdAt: d.createdAt, updatedAt: d.updatedAt, historico, atualizado }
   })
+
+  // Bloco 1 — em andamento (tudo que não está concluído): as que tiveram atualização de
+  // atividade desde o último relatório vêm primeiro, as sem novidade ficam depois.
+  const emAndamento = linhas
+    .filter(l => l.status !== 'CONCLUIDA')
+    .sort((a, b) => Number(b.atualizado) - Number(a.atualizado))
+
+  // Bloco 2 — concluídas: quem concluiu por último aparece primeiro, quem concluiu há mais
+  // tempo vai ficando por último (updatedAt reflete o momento em que o status virou CONCLUIDA).
+  const concluidas = linhas
+    .filter(l => l.status === 'CONCLUIDA')
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+
+  return { emAndamento, concluidas }
 }
 
 // ---- Relatório Geral (IA): uma análise por demanda, cobrindo todas as atividades dela ----
 
+// Desenha o título de uma seção do Relatório Geral (ex.: "Demandas em andamento") — uma faixa
+// colorida de fundo pra separar visualmente os dois blocos do relatório.
+function desenharTituloSecaoPDF(doc: PDFKit.PDFDocument, titulo: string, cor: string) {
+  if (doc.y > doc.page.height - 100) doc.addPage()
+  const topo = doc.y
+  doc.rect(40, topo, doc.page.width - 80, 22).fillColor(cor).fill()
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(11).text(titulo, 48, topo + 6)
+  doc.y = topo + 22 + 10
+  doc.fillColor(COR_TEXTO).font('Helvetica')
+}
+
+function desenharBlocoDemandaPDF(doc: PDFKit.PDFDocument, l: LinhaRelatorioGeral) {
+  // Reserva um espaço mínimo pro bloco não começar colado no rodapé da página. O cabeçalho
+  // (logo/título) não se repete — só aparece na primeira página do relatório.
+  if (doc.y > doc.page.height - 160) doc.addPage()
+  const topoBloco = doc.y
+  doc.fontSize(11).fillColor(COR_TITULO).font('Helvetica-Bold').text(`GEP ${l.gep} — ${l.assunto}`, 44, topoBloco + 6, { width: doc.page.width - 88 })
+  doc.fontSize(8).fillColor(COR_SUBTITULO).font('Helvetica').text(`Status: ${l.status}  |  Criada em: ${formatDate(l.createdAt)}`, 44, doc.y + 2)
+  doc.moveDown(0.3)
+  doc.fontSize(9).fillColor(COR_TEXTO).font('Helvetica').text(l.historico, 44, doc.y, { width: doc.page.width - 88, align: 'justify' })
+  const baseBloco = doc.y + 8
+  doc.roundedRect(40, topoBloco, doc.page.width - 80, baseBloco - topoBloco, 4).strokeColor(COR_BORDA).lineWidth(1).stroke()
+  doc.y = baseBloco + 12
+}
+
 relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: Response) => {
-  const linhas = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
+  const { emAndamento, concluidas } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
+  const total = emAndamento.length + concluidas.length
 
   const doc = new PDFDocument({ margin: 40, size: 'A4' })
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_geral_demandas.pdf')
   doc.pipe(res)
 
-  const subtitulo = comEmissor(`Gerado em ${formatDate(new Date())} — ${linhas.length} demanda(s)`, req)
+  const subtitulo = comEmissor(`Gerado em ${formatDate(new Date())} — ${total} demanda(s)`, req)
   desenharCabecalhoPDF(doc, 'Relatório Geral de Demandas', subtitulo)
 
-  linhas.forEach((l, i) => {
-    // Reserva um espaço mínimo pro bloco não começar colado no rodapé da página. O cabeçalho
-    // (logo/título) não se repete — só aparece na primeira página do relatório.
-    if (doc.y > doc.page.height - 160) doc.addPage()
-    const topoBloco = doc.y
-    doc.fontSize(11).fillColor(COR_TITULO).font('Helvetica-Bold').text(`GEP ${l.gep} — ${l.assunto}`, 44, topoBloco + 6, { width: doc.page.width - 88 })
-    doc.fontSize(8).fillColor(COR_SUBTITULO).font('Helvetica').text(`Status: ${l.status}  |  Criada em: ${formatDate(l.createdAt)}`, 44, doc.y + 2)
-    doc.moveDown(0.3)
-    doc.fontSize(9).fillColor(COR_TEXTO).font('Helvetica').text(l.historico, 44, doc.y, { width: doc.page.width - 88, align: 'justify' })
-    const baseBloco = doc.y + 8
-    doc.roundedRect(40, topoBloco, doc.page.width - 80, baseBloco - topoBloco, 4).strokeColor(COR_BORDA).lineWidth(1).stroke()
-    doc.y = baseBloco + 12
-  })
+  if (emAndamento.length > 0) {
+    desenharTituloSecaoPDF(doc, `Demandas em andamento (${emAndamento.length})`, COR_TITULO)
+    emAndamento.forEach(l => desenharBlocoDemandaPDF(doc, l))
+  }
+  if (concluidas.length > 0) {
+    desenharTituloSecaoPDF(doc, `Demandas concluídas (${concluidas.length})`, '#15803d')
+    concluidas.forEach(l => desenharBlocoDemandaPDF(doc, l))
+  }
+  if (total === 0) {
+    doc.fontSize(11).fillColor(COR_SUBTITULO).text('Nenhuma demanda encontrada para os filtros selecionados.', { align: 'center' })
+  }
 
   doc.end()
 })
 
-// ---- Relatório Geral (IA): Excel ----
-relatoriosRouter.get('/geral/excel', requireMaster, async (req: AuthRequest, res: Response) => {
-  const linhas = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
+const COLUNAS_RELATORIO_GERAL = [
+  { key: 'gep', width: 18 },
+  { key: 'assunto', width: 30 },
+  { key: 'status', width: 20 },
+  { key: 'createdAt', width: 18 },
+  { key: 'historico', width: 90 },
+]
+const CABECALHOS_RELATORIO_GERAL = ['Nº da Demanda (GEP)', 'Assunto', 'Status', 'Data de Criação', 'Histórico']
 
-  const wb = new ExcelJS.Workbook()
-  const ws = wb.addWorksheet('Relatório Geral')
-  montarCabecalhoExcel(
-    ws,
-    'Relatório Geral de Demandas — Prefeitura Municipal de Vitória da Conquista',
-    comEmissor(`Gerado em ${formatDate(new Date())} — ${linhas.length} demanda(s)`, req),
-    [
-      { key: 'gep', width: 18 },
-      { key: 'assunto', width: 30 },
-      { key: 'status', width: 20 },
-      { key: 'createdAt', width: 18 },
-      { key: 'historico', width: 90 },
-    ],
-    ['Nº da Demanda (GEP)', 'Assunto', 'Status', 'Data de Criação', 'Histórico']
-  )
+// Escreve uma seção (título colorido + cabeçalho da tabela + linhas) do Relatório Geral em
+// Excel, a partir da linha informada — devolve a próxima linha livre pra seção seguinte.
+function escreverSecaoExcel(ws: ExcelJS.Worksheet, startRow: number, titulo: string, corHex: string, linhas: LinhaRelatorioGeral[]): number {
+  const numCols = COLUNAS_RELATORIO_GERAL.length
+
+  ws.mergeCells(startRow, 1, startRow, numCols)
+  const tituloCell = ws.getCell(startRow, 1)
+  tituloCell.value = titulo
+  tituloCell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } }
+  tituloCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: corHex } }
+  tituloCell.alignment = { vertical: 'middle' }
+  ws.getRow(startRow).height = 20
+
+  const headerRowNum = startRow + 1
+  ws.getRow(headerRowNum).values = CABECALHOS_RELATORIO_GERAL
+  const headerRow = ws.getRow(headerRowNum)
+  headerRow.eachCell(cell => {
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+  })
+  headerRow.height = 20
 
   linhas.forEach((l, i) => {
     const row = ws.addRow({ gep: l.gep, assunto: l.assunto, status: l.status, createdAt: formatDate(l.createdAt), historico: l.historico })
     estilizarLinhaDados(row, i)
   })
+
+  return headerRowNum + linhas.length + 2 // uma linha em branco de respiro antes da próxima seção
+}
+
+// ---- Relatório Geral (IA): Excel ----
+relatoriosRouter.get('/geral/excel', requireMaster, async (req: AuthRequest, res: Response) => {
+  const { emAndamento, concluidas } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
+  const total = emAndamento.length + concluidas.length
+
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('Relatório Geral')
+  ws.columns = COLUNAS_RELATORIO_GERAL
+
+  ws.mergeCells(1, 1, 1, COLUNAS_RELATORIO_GERAL.length)
+  const tituloCell = ws.getCell(1, 1)
+  tituloCell.value = 'Relatório Geral de Demandas — Prefeitura Municipal de Vitória da Conquista'
+  tituloCell.font = { bold: true, size: 14, color: { argb: 'FF1E3A8A' } }
+  tituloCell.alignment = { horizontal: 'center', vertical: 'middle' }
+  ws.getRow(1).height = 28
+
+  ws.mergeCells(2, 1, 2, COLUNAS_RELATORIO_GERAL.length)
+  const subCell = ws.getCell(2, 1)
+  subCell.value = comEmissor(`Gerado em ${formatDate(new Date())} — ${total} demanda(s)`, req)
+  subCell.font = { italic: true, size: 9, color: { argb: 'FF6B7280' } }
+  subCell.alignment = { horizontal: 'center' }
+  ws.getRow(2).height = 18
+
+  if (LOGO_BUFFER) {
+    const imageId = ws.workbook.addImage({ buffer: LOGO_BUFFER as any, extension: 'png' })
+    ws.addImage(imageId, { tl: { col: 0, row: 0 }, ext: { width: 60, height: 25 } })
+  }
+
+  let proximaLinha = 4
+  if (emAndamento.length > 0) {
+    proximaLinha = escreverSecaoExcel(ws, proximaLinha, `Demandas em andamento (${emAndamento.length})`, 'FF1E3A8A', emAndamento)
+  }
+  if (concluidas.length > 0) {
+    proximaLinha = escreverSecaoExcel(ws, proximaLinha, `Demandas concluídas (${concluidas.length})`, 'FF15803D', concluidas)
+  }
+  if (total === 0) {
+    ws.mergeCells(4, 1, 4, COLUNAS_RELATORIO_GERAL.length)
+    ws.getCell(4, 1).value = 'Nenhuma demanda encontrada para os filtros selecionados.'
+    ws.getCell(4, 1).alignment = { horizontal: 'center' }
+  }
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_geral_demandas.xlsx')
