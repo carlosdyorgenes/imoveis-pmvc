@@ -20,8 +20,10 @@ relatoriosRouter.use(requireMaster)
 const LOGO_PATH = path.join(__dirname, '..', 'assets', 'brasao.png')
 const LOGO_BUFFER = fs.existsSync(LOGO_PATH) ? fs.readFileSync(LOGO_PATH) : null
 
+// timeZone explícito: o servidor roda em UTC (Fly.io), então sem isso os horários dos
+// relatórios saíam adiantados em relação a Brasília/DF.
 function formatDate(d: Date) {
-  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
 }
 
 // Acrescenta quem emitiu ao final do subtítulo de qualquer relatório (PDF ou Excel) — usa o
