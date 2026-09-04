@@ -34,9 +34,6 @@ const COR_SUBTITULO = '#6b7280'
 const COR_TEXTO = '#111827'
 const COR_BORDA = '#e5e7eb'
 
-// Proporção real do brasão.png (640x262) — usada pra calcular a altura exata a partir da
-// largura escolhida, em vez de "chutar" um moveDown() e deixar espaço em branco sobrando.
-const LOGO_RAZAO_ALTURA = 262 / 640
 const LOGO_LARGURA = 130
 
 // Cabeçalho padrão de TODOS os relatórios em PDF: brasão, título e "Prefeitura Municipal de
@@ -44,8 +41,10 @@ const LOGO_LARGURA = 130
 // quando o conteúdo estoura, não repetem o cabeçalho).
 function desenharCabecalhoPDF(doc: PDFKit.PDFDocument, titulo: string, subtitulo?: string) {
   if (LOGO_BUFFER) {
+    // doc.image já avança doc.y sozinho até a base da imagem — só falta um respiro pequeno
+    // antes do título (somar a altura de novo aqui duplicava o espaço).
     doc.image(LOGO_BUFFER, doc.page.width / 2 - LOGO_LARGURA / 2, doc.y, { width: LOGO_LARGURA })
-    doc.y += LOGO_LARGURA * LOGO_RAZAO_ALTURA + 4
+    doc.y += 6
   }
   doc.fontSize(16).fillColor(COR_TITULO).font('Helvetica-Bold').text(titulo, { align: 'center' })
   doc.fontSize(9).fillColor(COR_SUBTITULO).font('Helvetica').text('Prefeitura Municipal de Vitória da Conquista', { align: 'center' })
