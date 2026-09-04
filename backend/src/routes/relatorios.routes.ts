@@ -970,10 +970,7 @@ interface IndicadoresRelatorioGeral {
   percentualAtrasadas: number
   comPendenciaExterna: number
   tempoMedioConclusaoDias: number | null
-  atividadesDevolvidas: number
   porEquipe: { label: string; valor: number }[]
-  concluidasEsteMes: number
-  concluidasMesAnterior: number
 }
 
 interface LinhasRelatorioGeralAgrupadas {
@@ -1048,8 +1045,6 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
 
   // ---- Indicadores (capa executiva) ----
   const agora = new Date()
-  const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1)
-  const inicioMesAnterior = new Date(agora.getFullYear(), agora.getMonth() - 1, 1)
 
   const porStatusMap = new Map<string, number>()
   for (const d of demandas) porStatusMap.set(d.status, (porStatusMap.get(d.status) || 0) + 1)
@@ -1065,8 +1060,6 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     ? Math.round(concluidas.reduce((acc, l) => acc + (l.updatedAt.getTime() - l.createdAt.getTime()), 0) / concluidas.length / 86400000 * 10) / 10
     : null
 
-  const atividadesDevolvidas = demandas.reduce((acc, d) => acc + d.atividades.filter(a => a.motivoDevolucao).length, 0)
-
   const porEquipeMap = new Map<string, number>()
   for (const d of demandas) {
     for (const a of d.atividades) {
@@ -1079,9 +1072,6 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     .map(([label, valor]) => ({ label, valor }))
     .sort((a, b) => b.valor - a.valor)
 
-  const concluidasEsteMes = demandas.filter(d => d.status === 'CONCLUIDA' && d.updatedAt >= inicioMes).length
-  const concluidasMesAnterior = demandas.filter(d => d.status === 'CONCLUIDA' && d.updatedAt >= inicioMesAnterior && d.updatedAt < inicioMes).length
-
   const indicadores: IndicadoresRelatorioGeral = {
     totalDemandas: demandas.length,
     porStatus,
@@ -1090,10 +1080,7 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     percentualAtrasadas: ativas.length > 0 ? Math.round((atrasadas.length / ativas.length) * 1000) / 10 : 0,
     comPendenciaExterna,
     tempoMedioConclusaoDias,
-    atividadesDevolvidas,
     porEquipe,
-    concluidasEsteMes,
-    concluidasMesAnterior,
   }
 
   return { emAndamento, concluidas, indicadores }
@@ -1173,18 +1160,11 @@ function desenharBarrasPDF(doc: PDFKit.PDFDocument, dados: { label: string; valo
 function desenharIndicadoresPDF(doc: PDFKit.PDFDocument, ind: IndicadoresRelatorioGeral) {
   desenharTituloSecaoPDF(doc, 'Indicadores', '#374151')
 
-  // A fonte padrão do PDF (Helvetica) não tem os glifos de seta ↑/↓ — usar texto simples em
-  // vez de símbolo evita caracteres corrompidos no PDF final.
-  const tendenciaConcluidas = ind.concluidasEsteMes === ind.concluidasMesAnterior
-    ? 'estável'
-    : ind.concluidasEsteMes > ind.concluidasMesAnterior ? 'alta' : 'queda'
   const kpis = [
     { label: 'Total de demandas', valor: String(ind.totalDemandas) },
     { label: 'Taxa de atraso (em curso)', valor: `${ind.percentualAtrasadas}% (${ind.totalAtrasadas}/${ind.totalAtivas})` },
     { label: 'Com pendência externa em aberto', valor: String(ind.comPendenciaExterna) },
     { label: 'Tempo médio de conclusão', valor: ind.tempoMedioConclusaoDias !== null ? `${ind.tempoMedioConclusaoDias}d` : '—' },
-    { label: 'Atividades já devolvidas', valor: String(ind.atividadesDevolvidas) },
-    { label: 'Concluídas este mês', valor: `${ind.concluidasEsteMes} (${tendenciaConcluidas}, mês ant.: ${ind.concluidasMesAnterior})` },
   ]
   desenharKpisPDF(doc, kpis)
   doc.moveDown(0.8)
@@ -1288,16 +1268,11 @@ function escreverIndicadoresExcel(ws: ExcelJS.Worksheet, startRow: number, ind: 
   ws.getRow(row).height = 20
   row += 1
 
-  const tendenciaConcluidas = ind.concluidasEsteMes === ind.concluidasMesAnterior
-    ? 'estável'
-    : ind.concluidasEsteMes > ind.concluidasMesAnterior ? 'alta' : 'queda'
   const kpis: [string, string][] = [
     ['Total de demandas', String(ind.totalDemandas)],
     ['Taxa de atraso (em curso)', `${ind.percentualAtrasadas}% (${ind.totalAtrasadas}/${ind.totalAtivas})`],
     ['Com pendência externa em aberto', String(ind.comPendenciaExterna)],
     ['Tempo médio de conclusão', ind.tempoMedioConclusaoDias !== null ? `${ind.tempoMedioConclusaoDias}d` : '—'],
-    ['Atividades já devolvidas', String(ind.atividadesDevolvidas)],
-    ['Concluídas este mês', `${ind.concluidasEsteMes} (${tendenciaConcluidas}, mês anterior: ${ind.concluidasMesAnterior})`],
   ]
   kpis.forEach(([label, valor]) => {
     ws.getCell(row, 1).value = label
