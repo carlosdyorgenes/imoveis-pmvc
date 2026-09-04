@@ -8,6 +8,7 @@ import { prisma } from '../lib/prisma'
 import { authenticate, requireMaster, AuthRequest } from '../middleware/auth'
 import { AppError } from '../middleware/errorHandler'
 import { calcularTemposAtividade } from '../domain/tempos'
+import { STATUS_ATIVIDADE_ATIVOS } from '../domain/estados'
 import { gerarTextoIA } from '../utils/ia'
 
 export const relatoriosRouter = Router()
@@ -949,9 +950,36 @@ interface LinhaRelatorioGeral {
   atualizado: boolean
 }
 
+// Rótulos amigáveis dos status de demanda, pros indicadores (mesmos valores usados no restante
+// do sistema, ver STATUS_LABEL no frontend).
+const STATUS_LABEL_PT: Record<string, string> = {
+  ABERTA: 'Aberta',
+  EM_ANDAMENTO: 'Em andamento',
+  PARCIALMENTE_CONCLUIDA: 'Parcialmente concluída',
+  AGUARDANDO_TERCEIRO: 'Aguardando terceiro',
+  DEVOLVIDA: 'Devolvida',
+  CONCLUIDA: 'Concluída',
+  CANCELADA: 'Cancelada',
+}
+
+interface IndicadoresRelatorioGeral {
+  totalDemandas: number
+  porStatus: { label: string; valor: number }[]
+  totalAtivas: number
+  totalAtrasadas: number
+  percentualAtrasadas: number
+  comPendenciaExterna: number
+  tempoMedioConclusaoDias: number | null
+  atividadesDevolvidas: number
+  porEquipe: { label: string; valor: number }[]
+  concluidasEsteMes: number
+  concluidasMesAnterior: number
+}
+
 interface LinhasRelatorioGeralAgrupadas {
   emAndamento: LinhaRelatorioGeral[]
   concluidas: LinhaRelatorioGeral[]
+  indicadores: IndicadoresRelatorioGeral
 }
 
 async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise<LinhasRelatorioGeralAgrupadas> {
@@ -963,9 +991,10 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     include: {
       atividades: {
         where: { status: { not: 'CANCELADA' } },
-        include: { passos: { orderBy: { ordem: 'asc' } }, pendenciasExternas: true },
+        include: { passos: { orderBy: { ordem: 'asc' } }, pendenciasExternas: true, equipe: { select: { nome: true } } },
         orderBy: { createdAt: 'asc' },
       },
+      pendenciasExternas: true,
     },
     orderBy: { createdAt: 'desc' },
   })
@@ -1017,7 +1046,57 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     .filter(l => l.status === 'CONCLUIDA')
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
 
-  return { emAndamento, concluidas }
+  // ---- Indicadores (capa executiva) ----
+  const agora = new Date()
+  const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1)
+  const inicioMesAnterior = new Date(agora.getFullYear(), agora.getMonth() - 1, 1)
+
+  const porStatusMap = new Map<string, number>()
+  for (const d of demandas) porStatusMap.set(d.status, (porStatusMap.get(d.status) || 0) + 1)
+  const porStatus = Object.keys(STATUS_LABEL_PT)
+    .filter(s => porStatusMap.has(s))
+    .map(s => ({ label: STATUS_LABEL_PT[s], valor: porStatusMap.get(s)! }))
+
+  const ativas = demandas.filter(d => !['CONCLUIDA', 'CANCELADA'].includes(d.status))
+  const atrasadas = ativas.filter(d => d.prazo && d.prazo < agora)
+  const comPendenciaExterna = demandas.filter(d => d.pendenciasExternas.some(p => p.status !== 'RESPONDIDA')).length
+
+  const tempoMedioConclusaoDias = concluidas.length > 0
+    ? Math.round(concluidas.reduce((acc, l) => acc + (l.updatedAt.getTime() - l.createdAt.getTime()), 0) / concluidas.length / 86400000 * 10) / 10
+    : null
+
+  const atividadesDevolvidas = demandas.reduce((acc, d) => acc + d.atividades.filter(a => a.motivoDevolucao).length, 0)
+
+  const porEquipeMap = new Map<string, number>()
+  for (const d of demandas) {
+    for (const a of d.atividades) {
+      if (!STATUS_ATIVIDADE_ATIVOS.includes(a.status as any)) continue
+      const nome = a.equipe?.nome || 'Sem equipe'
+      porEquipeMap.set(nome, (porEquipeMap.get(nome) || 0) + 1)
+    }
+  }
+  const porEquipe = [...porEquipeMap.entries()]
+    .map(([label, valor]) => ({ label, valor }))
+    .sort((a, b) => b.valor - a.valor)
+
+  const concluidasEsteMes = demandas.filter(d => d.status === 'CONCLUIDA' && d.updatedAt >= inicioMes).length
+  const concluidasMesAnterior = demandas.filter(d => d.status === 'CONCLUIDA' && d.updatedAt >= inicioMesAnterior && d.updatedAt < inicioMes).length
+
+  const indicadores: IndicadoresRelatorioGeral = {
+    totalDemandas: demandas.length,
+    porStatus,
+    totalAtivas: ativas.length,
+    totalAtrasadas: atrasadas.length,
+    percentualAtrasadas: ativas.length > 0 ? Math.round((atrasadas.length / ativas.length) * 1000) / 10 : 0,
+    comPendenciaExterna,
+    tempoMedioConclusaoDias,
+    atividadesDevolvidas,
+    porEquipe,
+    concluidasEsteMes,
+    concluidasMesAnterior,
+  }
+
+  return { emAndamento, concluidas, indicadores }
 }
 
 // ---- Relatório Geral (IA): uma análise por demanda, cobrindo todas as atividades dela ----
@@ -1047,8 +1126,83 @@ function desenharBlocoDemandaPDF(doc: PDFKit.PDFDocument, l: LinhaRelatorioGeral
   doc.y = baseBloco + 12
 }
 
+// Grade de "cartões" de indicador (KPI) — 3 por linha, cada um com rótulo pequeno em cima e o
+// valor em destaque embaixo, dentro de uma caixa com borda.
+function desenharKpisPDF(doc: PDFKit.PDFDocument, kpis: { label: string; valor: string }[]) {
+  const cols = 3
+  const gap = 10
+  const larguraBox = (doc.page.width - 80 - gap * (cols - 1)) / cols
+  const alturaBox = 46
+  const linhas = Math.ceil(kpis.length / cols)
+  if (doc.y + linhas * (alturaBox + gap) > doc.page.height - 40) doc.addPage()
+  const topo = doc.y
+  kpis.forEach((kpi, i) => {
+    const col = i % cols
+    const row = Math.floor(i / cols)
+    const x = 40 + col * (larguraBox + gap)
+    const y = topo + row * (alturaBox + gap)
+    doc.roundedRect(x, y, larguraBox, alturaBox, 4).strokeColor(COR_BORDA).lineWidth(1).stroke()
+    doc.fontSize(7.5).fillColor(COR_SUBTITULO).font('Helvetica').text(kpi.label, x + 8, y + 7, { width: larguraBox - 16 })
+    doc.fontSize(15).fillColor(COR_TITULO).font('Helvetica-Bold').text(kpi.valor, x + 8, y + 21, { width: larguraBox - 16 })
+  })
+  doc.y = topo + linhas * (alturaBox + gap)
+  doc.fillColor(COR_TEXTO).font('Helvetica')
+}
+
+// Gráfico de barras horizontais simples (sem biblioteca de gráficos) — rótulo à esquerda, barra
+// proporcional ao maior valor da série, número ao final da barra.
+function desenharBarrasPDF(doc: PDFKit.PDFDocument, dados: { label: string; valor: number }[], corBarra: string) {
+  if (dados.length === 0) return
+  const max = Math.max(...dados.map(d => d.valor), 1)
+  const larguraLabel = 150
+  const larguraMaxBarra = doc.page.width - 80 - larguraLabel - 40
+  const alturaBarra = 13
+  const gap = 6
+  if (doc.y + dados.length * (alturaBarra + gap) > doc.page.height - 40) doc.addPage()
+  dados.forEach(d => {
+    const y = doc.y
+    doc.fontSize(8).fillColor(COR_TEXTO).font('Helvetica').text(d.label, 40, y + 2, { width: larguraLabel - 8, ellipsis: true })
+    const largura = Math.max(3, (d.valor / max) * larguraMaxBarra)
+    doc.rect(40 + larguraLabel, y, largura, alturaBarra).fillColor(corBarra).fill()
+    doc.fontSize(8).fillColor(COR_TEXTO).text(String(d.valor), 40 + larguraLabel + largura + 6, y + 2)
+    doc.y = y + alturaBarra + gap
+  })
+  doc.fillColor(COR_TEXTO).font('Helvetica')
+}
+
+function desenharIndicadoresPDF(doc: PDFKit.PDFDocument, ind: IndicadoresRelatorioGeral) {
+  desenharTituloSecaoPDF(doc, 'Indicadores', '#374151')
+
+  const tendenciaConcluidas = ind.concluidasEsteMes === ind.concluidasMesAnterior
+    ? '='
+    : ind.concluidasEsteMes > ind.concluidasMesAnterior ? '↑' : '↓'
+  const kpis = [
+    { label: 'Total de demandas', valor: String(ind.totalDemandas) },
+    { label: 'Taxa de atraso (em curso)', valor: `${ind.percentualAtrasadas}% (${ind.totalAtrasadas}/${ind.totalAtivas})` },
+    { label: 'Com pendência externa em aberto', valor: String(ind.comPendenciaExterna) },
+    { label: 'Tempo médio de conclusão', valor: ind.tempoMedioConclusaoDias !== null ? `${ind.tempoMedioConclusaoDias}d` : '—' },
+    { label: 'Atividades já devolvidas', valor: String(ind.atividadesDevolvidas) },
+    { label: 'Concluídas este mês', valor: `${ind.concluidasEsteMes} ${tendenciaConcluidas} (mês ant.: ${ind.concluidasMesAnterior})` },
+  ]
+  desenharKpisPDF(doc, kpis)
+  doc.moveDown(0.8)
+
+  if (ind.porStatus.length > 0) {
+    doc.fontSize(10).fillColor(COR_TITULO).font('Helvetica-Bold').text('Demandas por status')
+    doc.moveDown(0.3)
+    desenharBarrasPDF(doc, ind.porStatus, COR_TITULO)
+    doc.moveDown(0.6)
+  }
+  if (ind.porEquipe.length > 0) {
+    doc.fontSize(10).fillColor(COR_TITULO).font('Helvetica-Bold').text('Atividades ativas por equipe')
+    doc.moveDown(0.3)
+    desenharBarrasPDF(doc, ind.porEquipe, '#15803d')
+    doc.moveDown(0.6)
+  }
+}
+
 relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: Response) => {
-  const { emAndamento, concluidas } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
+  const { emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
   const total = emAndamento.length + concluidas.length
 
   const doc = new PDFDocument({ margin: 40, size: 'A4' })
@@ -1058,6 +1212,8 @@ relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: 
 
   const subtitulo = comEmissor(`Gerado em ${formatDate(new Date())} — ${total} demanda(s)`, req)
   desenharCabecalhoPDF(doc, 'Relatório Geral de Demandas', subtitulo)
+
+  if (total > 0) desenharIndicadoresPDF(doc, indicadores)
 
   if (emAndamento.length > 0) {
     desenharTituloSecaoPDF(doc, `Demandas em andamento (${emAndamento.length})`, COR_TITULO)
@@ -1114,9 +1270,71 @@ function escreverSecaoExcel(ws: ExcelJS.Worksheet, startRow: number, titulo: str
   return headerRowNum + linhas.length + 2 // uma linha em branco de respiro antes da próxima seção
 }
 
+// Seção "Indicadores" no Excel: como o ExcelJS não desenha gráfico nativo, os dados de
+// status/equipe entram como tabela mesmo — dá pra selecionar e montar um gráfico no próprio
+// Excel em segundos, se quiser.
+function escreverIndicadoresExcel(ws: ExcelJS.Worksheet, startRow: number, ind: IndicadoresRelatorioGeral): number {
+  const numCols = COLUNAS_RELATORIO_GERAL.length
+  let row = startRow
+
+  ws.mergeCells(row, 1, row, numCols)
+  const tituloCell = ws.getCell(row, 1)
+  tituloCell.value = 'Indicadores'
+  tituloCell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } }
+  tituloCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } }
+  tituloCell.alignment = { vertical: 'middle' }
+  ws.getRow(row).height = 20
+  row += 1
+
+  const tendenciaConcluidas = ind.concluidasEsteMes === ind.concluidasMesAnterior
+    ? '='
+    : ind.concluidasEsteMes > ind.concluidasMesAnterior ? '↑' : '↓'
+  const kpis: [string, string][] = [
+    ['Total de demandas', String(ind.totalDemandas)],
+    ['Taxa de atraso (em curso)', `${ind.percentualAtrasadas}% (${ind.totalAtrasadas}/${ind.totalAtivas})`],
+    ['Com pendência externa em aberto', String(ind.comPendenciaExterna)],
+    ['Tempo médio de conclusão', ind.tempoMedioConclusaoDias !== null ? `${ind.tempoMedioConclusaoDias}d` : '—'],
+    ['Atividades já devolvidas', String(ind.atividadesDevolvidas)],
+    ['Concluídas este mês', `${ind.concluidasEsteMes} ${tendenciaConcluidas} (mês anterior: ${ind.concluidasMesAnterior})`],
+  ]
+  kpis.forEach(([label, valor]) => {
+    ws.getCell(row, 1).value = label
+    ws.getCell(row, 1).font = { bold: true }
+    ws.getCell(row, 2).value = valor
+    row += 1
+  })
+  row += 1
+
+  if (ind.porStatus.length > 0) {
+    ws.getCell(row, 1).value = 'Demandas por status'
+    ws.getCell(row, 1).font = { bold: true, color: { argb: 'FF1E3A8A' } }
+    row += 1
+    ind.porStatus.forEach(s => {
+      ws.getCell(row, 1).value = s.label
+      ws.getCell(row, 2).value = s.valor
+      row += 1
+    })
+    row += 1
+  }
+
+  if (ind.porEquipe.length > 0) {
+    ws.getCell(row, 1).value = 'Atividades ativas por equipe'
+    ws.getCell(row, 1).font = { bold: true, color: { argb: 'FF1E3A8A' } }
+    row += 1
+    ind.porEquipe.forEach(e => {
+      ws.getCell(row, 1).value = e.label
+      ws.getCell(row, 2).value = e.valor
+      row += 1
+    })
+    row += 1
+  }
+
+  return row + 1
+}
+
 // ---- Relatório Geral (IA): Excel ----
 relatoriosRouter.get('/geral/excel', requireMaster, async (req: AuthRequest, res: Response) => {
-  const { emAndamento, concluidas } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
+  const { emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
   const total = emAndamento.length + concluidas.length
 
   const wb = new ExcelJS.Workbook()
@@ -1143,6 +1361,7 @@ relatoriosRouter.get('/geral/excel', requireMaster, async (req: AuthRequest, res
   }
 
   let proximaLinha = 4
+  if (total > 0) proximaLinha = escreverIndicadoresExcel(ws, proximaLinha, indicadores)
   if (emAndamento.length > 0) {
     proximaLinha = escreverSecaoExcel(ws, proximaLinha, `Demandas em andamento (${emAndamento.length})`, 'FF1E3A8A', emAndamento)
   }
