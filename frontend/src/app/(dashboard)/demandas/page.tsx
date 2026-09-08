@@ -22,6 +22,15 @@ function downloadBlob(blob: Blob, filename: string) {
 
 const errMsg = (err: any, fallback: string) => err?.response?.data?.error || fallback
 
+// timeZone explícito: sem isso, a data/hora sai no fuso do navegador de quem está olhando —
+// aqui sempre em horário de Brasília, igual aos relatórios.
+function formatBrasilia(iso: string) {
+  return new Date(iso).toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
+    timeZone: 'America/Sao_Paulo',
+  })
+}
+
 const STATUS_LABEL: Record<StatusDemanda, string> = {
   ABERTA: 'Aberta',
   EM_ANDAMENTO: 'Em andamento',
@@ -429,7 +438,7 @@ export default function DemandasPage() {
               <colgroup>
                 <col className="w-[110px]" /><col /><col className="w-[160px]" />
                 <col className="w-[90px]" />
-                <col className="w-[110px]" /><col className="w-[130px]" /><col className="w-[110px]" />
+                <col className="w-[110px]" /><col className="w-[130px]" /><col className="w-[110px]" /><col className="w-[130px]" />
                 {isMaster && <col className="w-[50px]" />}
               </colgroup>
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -441,6 +450,7 @@ export default function DemandasPage() {
                   <th className="text-left px-3 py-2 font-medium text-gray-600">Status</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-600">Atividades</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-600">Criada em</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-600">Última atualização</th>
                   {isMaster && <th className="px-3 py-2"></th>}
                 </tr>
               </thead>
@@ -481,6 +491,9 @@ export default function DemandasPage() {
                     </td>
                     <td className="px-3 py-2 text-xs text-gray-400 align-top">
                       {format(new Date(d.createdAt), 'dd/MM/yy', { locale: ptBR })}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-gray-400 align-top">
+                      {d.ultimaAtualizacao ? formatBrasilia(d.ultimaAtualizacao) : '—'}
                     </td>
                     {isMaster && (
                       <td className="px-3 py-2 align-top">

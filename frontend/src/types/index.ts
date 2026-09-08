@@ -261,6 +261,7 @@ export interface Demanda {
   comentarios?: Comentario[]
   documentosOutrasEquipes?: DocumentoOutraEquipe[]
   houveAtualizacao?: boolean
+  ultimaAtualizacao?: string
 }
 
 export interface Log {

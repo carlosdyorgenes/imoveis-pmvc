@@ -383,19 +383,24 @@ demandasRouter.get('/', async (req: AuthRequest, res) => {
     orderBy: { createdAt: 'desc' },
   })
 
-  // Só pro Master: classifica a listagem pela atualização mais recente de cada demanda
-  // (qualquer evento de histórico — status de atividade, documento anexado, edição, etc. —
-  // registrarHistorico cobre praticamente tudo que conta como "atualização"), e marca com
+  if (demandas.length === 0) return res.json(demandas)
+
+  // Última atualização real de cada demanda (qualquer evento de histórico — status de
+  // atividade, documento anexado, edição, etc. — registrarHistorico cobre praticamente tudo
+  // que conta como "atualização"), exposta pra coluna "Última atualização" da listagem. Cai
+  // pra data de criação quando a demanda ainda não tem nenhum evento de histórico registrado.
+  const demandaIds = demandas.map(d => d.id)
+  const ultimasAtualizacoes = await prisma.historicoDemanda.groupBy({
+    by: ['demandaId'], where: { demandaId: { in: demandaIds } }, _max: { createdAt: true },
+  })
+  const ultimaPorDemanda = new Map(ultimasAtualizacoes.map(u => [u.demandaId, u._max.createdAt as Date]))
+
+  // Só pro Master: classifica a listagem pela atualização mais recente e marca com
   // houveAtualizacao as que mudaram desde a última vez que ESTE Master abriu a demanda
   // (DemandaVisualizacaoMaster, atualizado em GET /:id). A tag some sozinha depois que ele
   // abre a demanda uma vez.
-  if (req.user!.role === 'MASTER' && demandas.length > 0) {
-    const demandaIds = demandas.map(d => d.id)
-    const [ultimasAtualizacoes, visualizacoes] = await Promise.all([
-      prisma.historicoDemanda.groupBy({ by: ['demandaId'], where: { demandaId: { in: demandaIds } }, _max: { createdAt: true } }),
-      prisma.demandaVisualizacaoMaster.findMany({ where: { userId: req.user!.id, demandaId: { in: demandaIds } } }),
-    ])
-    const ultimaPorDemanda = new Map(ultimasAtualizacoes.map(u => [u.demandaId, u._max.createdAt as Date]))
+  if (req.user!.role === 'MASTER') {
+    const visualizacoes = await prisma.demandaVisualizacaoMaster.findMany({ where: { userId: req.user!.id, demandaId: { in: demandaIds } } })
     const vistoPorDemanda = new Map(visualizacoes.map(v => [v.demandaId, v.vistoEm]))
 
     const comOrdenacao = demandas.map(d => {
@@ -405,10 +410,10 @@ demandasRouter.get('/', async (req: AuthRequest, res) => {
     })
     comOrdenacao.sort((a, b) => b.ultimaAtualizacao.getTime() - a.ultimaAtualizacao.getTime())
 
-    return res.json(comOrdenacao.map(({ demanda, houveAtualizacao }) => ({ ...demanda, houveAtualizacao })))
+    return res.json(comOrdenacao.map(({ demanda, ultimaAtualizacao, houveAtualizacao }) => ({ ...demanda, ultimaAtualizacao, houveAtualizacao })))
   }
 
-  res.json(demandas)
+  res.json(demandas.map(d => ({ ...d, ultimaAtualizacao: ultimaPorDemanda.get(d.id) || d.createdAt })))
 })
 
 demandasRouter.get('/:id', async (req: AuthRequest, res) => {
