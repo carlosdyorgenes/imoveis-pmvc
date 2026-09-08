@@ -976,6 +976,7 @@ interface IndicadoresRelatorioGeral {
 }
 
 interface LinhasRelatorioGeralAgrupadas {
+  atualizadas: LinhaRelatorioGeral[]
   emAndamento: LinhaRelatorioGeral[]
   concluidas: LinhaRelatorioGeral[]
   indicadores: IndicadoresRelatorioGeral
@@ -1033,13 +1034,20 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     return { gep: `${d.gepNumero}/${d.gepAno}`, assunto: d.assunto, status: d.status, createdAt: d.createdAt, updatedAt: d.updatedAt, historico, atualizado }
   })
 
-  // Bloco 1 — em andamento (tudo que não está concluído): as que tiveram atualização de
-  // atividade desde o último relatório vêm primeiro, as sem novidade ficam depois.
-  const emAndamento = linhas
-    .filter(l => l.status !== 'CONCLUIDA')
-    .sort((a, b) => Number(b.atualizado) - Number(a.atualizado))
+  // Bloco 1 — atualizadas: qualquer demanda não concluída que teve alguma movimentação nas
+  // atividades desde o último relatório gerado (é o mesmo "atualizado" que decide se a IA foi
+  // chamada de novo ou reaproveitou o cache — ver acima).
+  const atualizadas = linhas
+    .filter(l => l.status !== 'CONCLUIDA' && l.atualizado)
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
 
-  // Bloco 2 — concluídas: quem concluiu por último aparece primeiro, quem concluiu há mais
+  // Bloco 2 — em andamento: as demais demandas não concluídas, sem nenhuma movimentação desde
+  // o último relatório.
+  const emAndamento = linhas
+    .filter(l => l.status !== 'CONCLUIDA' && !l.atualizado)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+
+  // Bloco 3 — concluídas: quem concluiu por último aparece primeiro, quem concluiu há mais
   // tempo vai ficando por último (updatedAt reflete o momento em que o status virou CONCLUIDA).
   const concluidas = linhas
     .filter(l => l.status === 'CONCLUIDA')
@@ -1085,7 +1093,7 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     porEquipe,
   }
 
-  return { emAndamento, concluidas, indicadores }
+  return { atualizadas, emAndamento, concluidas, indicadores }
 }
 
 // ---- Relatório Geral (IA): uma análise por demanda, cobrindo todas as atividades dela ----
@@ -1186,8 +1194,8 @@ function desenharIndicadoresPDF(doc: PDFKit.PDFDocument, ind: IndicadoresRelator
 }
 
 relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: Response) => {
-  const { emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
-  const total = emAndamento.length + concluidas.length
+  const { atualizadas, emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
+  const total = atualizadas.length + emAndamento.length + concluidas.length
 
   const doc = new PDFDocument({ margin: 40, size: 'A4' })
   res.setHeader('Content-Type', 'application/pdf')
@@ -1199,6 +1207,10 @@ relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: 
 
   if (total > 0) desenharIndicadoresPDF(doc, indicadores)
 
+  if (atualizadas.length > 0) {
+    desenharTituloSecaoPDF(doc, `Demandas atualizadas (${atualizadas.length})`, '#b45309')
+    atualizadas.forEach(l => desenharBlocoDemandaPDF(doc, l))
+  }
   if (emAndamento.length > 0) {
     desenharTituloSecaoPDF(doc, `Demandas em andamento (${emAndamento.length})`, COR_TITULO)
     emAndamento.forEach(l => desenharBlocoDemandaPDF(doc, l))
@@ -1313,8 +1325,8 @@ function escreverIndicadoresExcel(ws: ExcelJS.Worksheet, startRow: number, ind: 
 
 // ---- Relatório Geral (IA): Excel ----
 relatoriosRouter.get('/geral/excel', requireMaster, async (req: AuthRequest, res: Response) => {
-  const { emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
-  const total = emAndamento.length + concluidas.length
+  const { atualizadas, emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
+  const total = atualizadas.length + emAndamento.length + concluidas.length
 
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Relatório Geral')
@@ -1341,6 +1353,9 @@ relatoriosRouter.get('/geral/excel', requireMaster, async (req: AuthRequest, res
 
   let proximaLinha = 4
   if (total > 0) proximaLinha = escreverIndicadoresExcel(ws, proximaLinha, indicadores)
+  if (atualizadas.length > 0) {
+    proximaLinha = escreverSecaoExcel(ws, proximaLinha, `Demandas atualizadas (${atualizadas.length})`, 'FFB45309', atualizadas)
+  }
   if (emAndamento.length > 0) {
     proximaLinha = escreverSecaoExcel(ws, proximaLinha, `Demandas em andamento (${emAndamento.length})`, 'FF1E3A8A', emAndamento)
   }
