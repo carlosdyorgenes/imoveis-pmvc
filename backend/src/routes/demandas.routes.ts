@@ -361,8 +361,9 @@ demandasRouter.get('/', async (req: AuthRequest, res) => {
   // atividade atribuída a ele ou à sua equipe. Na listagem de Demandas, qualquer atividade da
   // equipe conta (não só a que caiu especificamente pra esse usuário) — colegas de equipe
   // acompanham e agem no que for do setor deles. Isso é diferente de "Minha Fila", que
-  // continua restrita ao que foi atribuído especificamente à pessoa.
-  if (req.user!.role !== 'MASTER') {
+  // continua restrita ao que foi atribuído especificamente à pessoa. CONSULTA vê tudo, igual
+  // ao Master (perfil de leitura em todas as áreas, sem isolamento por equipe/solicitante).
+  if (!['MASTER', 'CONSULTA'].includes(req.user!.role)) {
     const equipeIds = await getEquipeIdsDoUsuario(req.user!.id)
     andConditions.push({
       OR: [
@@ -426,7 +427,10 @@ demandasRouter.get('/:id', async (req: AuthRequest, res) => {
   const uid = req.user!.id
   const isMaster = req.user!.role === 'MASTER'
   const isSolicitante = demanda.solicitanteId === uid
-  const vePorCompleto = isMaster || isSolicitante
+  // CONSULTA enxerga tudo igual ao Master (é só leitura em todas as áreas) — mas sem os
+  // efeitos colaterais exclusivos de Master, como marcar DemandaVisualizacaoMaster abaixo.
+  const isConsulta = req.user!.role === 'CONSULTA'
+  const vePorCompleto = isMaster || isSolicitante || isConsulta
   const equipeIds = vePorCompleto ? [] : await getEquipeIdsDoUsuario(uid)
 
   // Sem nenhuma relação com a demanda (não é quem abriu, não é MASTER, e não tem nenhuma
