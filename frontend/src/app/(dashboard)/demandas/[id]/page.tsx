@@ -170,7 +170,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
   const { id } = params
   const qc = useQueryClient()
   const router = useRouter()
-  const { user, isMaster } = useAuth()
+  const { user, isMaster, isConsulta } = useAuth()
 
   // Ao sair desta tela, invalida a listagem de Demandas em cache — sem isso, a tag de
   // "houve atualização" (ver GET /demandas) ficava presa até o staleTime de 30s expirar ou a
@@ -593,7 +593,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-800">Atividades</h2>
             <div className="flex gap-2">
-              {isMaster && (
+              {(isMaster || isConsulta) && (
                 <button
                   onClick={async () => {
                     // Busca a demanda de novo antes de montar o resumo — sem isso, o texto
@@ -1606,7 +1606,7 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
         </div>
       )}
 
-      {showResumo && isMaster && (
+      {showResumo && (isMaster || isConsulta) && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between p-5 border-b border-gray-100">

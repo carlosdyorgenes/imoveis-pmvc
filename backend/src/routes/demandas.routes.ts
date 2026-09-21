@@ -5,7 +5,7 @@ import path from 'path'
 import crypto from 'crypto'
 import archiver from 'archiver'
 import { prisma } from '../lib/prisma'
-import { authenticate, requireMaster, AuthRequest } from '../middleware/auth'
+import { authenticate, requireMaster, requireMasterOuConsulta, AuthRequest } from '../middleware/auth'
 import { AppError } from '../middleware/errorHandler'
 import { createLog } from '../utils/logger'
 import { notificar } from '../utils/notificar'
@@ -1064,7 +1064,7 @@ function assinaturaAtividadesServidor(demanda: {
   return JSON.stringify({ status: demanda.status, atividades })
 }
 
-demandasRouter.post('/:id/resumo-consulta', requireMaster, async (req: AuthRequest, res) => {
+demandasRouter.post('/:id/resumo-consulta', requireMasterOuConsulta, async (req: AuthRequest, res) => {
   const demanda = await prisma.demanda.findUnique({
     where: { id: req.params.id },
     include: { atividades: true, pendenciasExternas: true },
@@ -1093,7 +1093,7 @@ demandasRouter.post('/:id/resumo-consulta', requireMaster, async (req: AuthReque
   })
 })
 
-demandasRouter.post('/:id/resumo-formal', requireMaster, async (req: AuthRequest, res) => {
+demandasRouter.post('/:id/resumo-formal', requireMasterOuConsulta, async (req: AuthRequest, res) => {
   const { texto } = req.body
   if (!texto?.trim()) throw new AppError('Informe o texto a ser reescrito')
 

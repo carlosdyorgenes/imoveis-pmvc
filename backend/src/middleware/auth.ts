@@ -10,15 +10,19 @@ export interface AuthRequest extends Request {
 // Perfil CONSULTA: acesso de leitura a todas as áreas, mas nenhuma inclusão, alteração ou
 // exclusão em lugar nenhum do sistema — checado aqui dentro do authenticate (não em cada rota)
 // pra não depender de lembrar de proteger cada endpoint novo individualmente. Exceções: a
-// própria conta em /api/auth (trocar a própria senha, sair) e notificações pessoais em
-// /api/notificacoes (marcar como lida), que não mexem em dado de negócio nenhum.
+// própria conta em /api/auth (trocar a própria senha, sair), notificações pessoais em
+// /api/notificacoes (marcar como lida), e os dois endpoints do "Resumo da demanda" (que só lêem
+// e reformatam dados existentes via IA — não criam, alteram nem excluem nenhuma demanda/atividade).
 const METODOS_LEITURA = ['GET', 'HEAD', 'OPTIONS']
 const PREFIXOS_LIBERADOS_PARA_CONSULTA = ['/api/auth', '/api/notificacoes']
+const SUFIXOS_LIBERADOS_PARA_CONSULTA = ['/resumo-formal', '/resumo-consulta']
 
 export function bloqueiaEscritaDeConsulta(role: string, method: string, path: string): boolean {
   if (role !== 'CONSULTA') return false
   if (METODOS_LEITURA.includes(method)) return false
   if (PREFIXOS_LIBERADOS_PARA_CONSULTA.some(p => path.startsWith(p))) return false
+  const pathSemQuery = path.split('?')[0]
+  if (SUFIXOS_LIBERADOS_PARA_CONSULTA.some(s => pathSemQuery.endsWith(s))) return false
   return true
 }
 
@@ -48,6 +52,14 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
 
 export function requireMaster(req: AuthRequest, res: Response, next: NextFunction) {
   if (req.user?.role !== 'MASTER') throw new AppError('Acesso restrito ao usuário Master', 403)
+  next()
+}
+
+// Usado só pelos endpoints do "Resumo da demanda" (ver SUFIXOS_LIBERADOS_PARA_CONSULTA acima) —
+// CONSULTA pode gerar o resumo/prosa por IA igual ao Master, mesmo sendo um perfil só-leitura,
+// porque essa ação não grava nada de negócio (só lê e reformata o que já existe).
+export function requireMasterOuConsulta(req: AuthRequest, res: Response, next: NextFunction) {
+  if (req.user?.role !== 'MASTER' && req.user?.role !== 'CONSULTA') throw new AppError('Acesso restrito ao usuário Master', 403)
   next()
 }
 

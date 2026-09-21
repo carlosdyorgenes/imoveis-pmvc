@@ -64,6 +64,17 @@ describe('bloqueiaEscritaDeConsulta (perfil só-leitura global)', () => {
     expect(bloqueiaEscritaDeConsulta('CONSULTA', 'PUT', '/api/notificacoes/123/lida')).toBe(false)
   })
 
+  it('libera o Resumo da demanda (resumo-consulta e resumo-formal) mesmo sendo POST', () => {
+    expect(bloqueiaEscritaDeConsulta('CONSULTA', 'POST', '/api/demandas/abc123/resumo-consulta')).toBe(false)
+    expect(bloqueiaEscritaDeConsulta('CONSULTA', 'POST', '/api/demandas/abc123/resumo-formal')).toBe(false)
+  })
+
+  it('continua bloqueando outras escritas dentro de /api/demandas', () => {
+    expect(bloqueiaEscritaDeConsulta('CONSULTA', 'POST', '/api/demandas')).toBe(true)
+    expect(bloqueiaEscritaDeConsulta('CONSULTA', 'PUT', '/api/demandas/abc123')).toBe(true)
+    expect(bloqueiaEscritaDeConsulta('CONSULTA', 'DELETE', '/api/demandas/abc123')).toBe(true)
+  })
+
   it('nunca bloqueia MASTER ou PADRAO, mesmo em escrita', () => {
     expect(bloqueiaEscritaDeConsulta('MASTER', 'DELETE', '/api/demandas/1')).toBe(false)
     expect(bloqueiaEscritaDeConsulta('PADRAO', 'POST', '/api/ocorrencias')).toBe(false)
