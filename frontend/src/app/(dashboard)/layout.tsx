@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { Sidebar } from '@/components/Sidebar'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth()
+  const { user, loading, isConsulta } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
@@ -22,6 +22,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-screen">
       <Sidebar />
       <main className="flex-1 lg:ml-64 min-h-screen bg-gray-50">
+        {isConsulta && (
+          <div className="bg-sky-600 text-white text-xs font-medium text-center py-1.5 px-4">
+            Modo consulta — você pode visualizar todas as áreas, mas não pode incluir, alterar ou excluir nada.
+          </div>
+        )}
         <div className="p-6 lg:p-8">{children}</div>
       </main>
     </div>

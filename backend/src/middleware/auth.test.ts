@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { requirePermissao } from './auth'
+import { requirePermissao, bloqueiaEscritaDeConsulta } from './auth'
 import type { AuthRequest } from './auth'
 import type { Response } from 'express'
 
@@ -41,5 +41,31 @@ describe('requirePermissao (RBAC dinâmico)', () => {
     const next = vi.fn()
     expect(() => requirePermissao('tipos_demanda.gerenciar')(req, {} as Response, next)).toThrow()
     expect(next).not.toHaveBeenCalled()
+  })
+})
+
+describe('bloqueiaEscritaDeConsulta (perfil só-leitura global)', () => {
+  it('libera GET em qualquer rota pra CONSULTA', () => {
+    expect(bloqueiaEscritaDeConsulta('CONSULTA', 'GET', '/api/demandas')).toBe(false)
+  })
+
+  it('bloqueia POST/PUT/DELETE em rotas de negócio pra CONSULTA', () => {
+    expect(bloqueiaEscritaDeConsulta('CONSULTA', 'POST', '/api/demandas')).toBe(true)
+    expect(bloqueiaEscritaDeConsulta('CONSULTA', 'PUT', '/api/imoveis/123')).toBe(true)
+    expect(bloqueiaEscritaDeConsulta('CONSULTA', 'DELETE', '/api/ocorrencias/123')).toBe(true)
+  })
+
+  it('libera as próprias rotas de conta (/api/auth) mesmo em escrita', () => {
+    expect(bloqueiaEscritaDeConsulta('CONSULTA', 'PUT', '/api/auth/change-password')).toBe(false)
+    expect(bloqueiaEscritaDeConsulta('CONSULTA', 'POST', '/api/auth/logout')).toBe(false)
+  })
+
+  it('libera notificações pessoais mesmo em escrita', () => {
+    expect(bloqueiaEscritaDeConsulta('CONSULTA', 'PUT', '/api/notificacoes/123/lida')).toBe(false)
+  })
+
+  it('nunca bloqueia MASTER ou PADRAO, mesmo em escrita', () => {
+    expect(bloqueiaEscritaDeConsulta('MASTER', 'DELETE', '/api/demandas/1')).toBe(false)
+    expect(bloqueiaEscritaDeConsulta('PADRAO', 'POST', '/api/ocorrencias')).toBe(false)
   })
 })

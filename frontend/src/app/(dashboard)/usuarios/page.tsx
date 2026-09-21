@@ -14,7 +14,7 @@ interface UserForm {
   name: string
   email: string
   password: string
-  role: 'MASTER' | 'PADRAO'
+  role: 'MASTER' | 'PADRAO' | 'CONSULTA'
   active: boolean
 }
 
@@ -109,9 +109,9 @@ export default function UsuariosPage() {
                 <td className="px-4 py-3 text-gray-600">{u.email}</td>
                 <td className="px-4 py-3">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    u.role === 'MASTER' ? 'bg-primary-100 text-primary-700' : 'bg-gray-100 text-gray-600'
+                    u.role === 'MASTER' ? 'bg-primary-100 text-primary-700' : u.role === 'CONSULTA' ? 'bg-sky-100 text-sky-700' : 'bg-gray-100 text-gray-600'
                   }`}>
-                    {u.role === 'MASTER' ? 'Administrador' : 'Padrão'}
+                    {u.role === 'MASTER' ? 'Administrador' : u.role === 'CONSULTA' ? 'Consulta' : 'Padrão'}
                   </span>
                 </td>
                 <td className="px-4 py-3">
@@ -172,6 +172,7 @@ export default function UsuariosPage() {
                   <label className="label">Perfil</label>
                   <select {...register('role')} className="input">
                     <option value="PADRAO">Padrão</option>
+                    <option value="CONSULTA">Consulta (somente leitura)</option>
                     <option value="MASTER">Master</option>
                   </select>
                 </div>

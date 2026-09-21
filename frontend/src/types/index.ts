@@ -1,4 +1,4 @@
-export type UserRole = 'MASTER' | 'PADRAO'
+export type UserRole = 'MASTER' | 'PADRAO' | 'CONSULTA'
 export type TipoImovel = 'PROPRIO' | 'LOCADO'
 export type ZonaImovel = 'URBANO' | 'RURAL'
 export type CategoriaImovel = 'AREA_VERDE' | 'AREA_INSTITUCIONAL'

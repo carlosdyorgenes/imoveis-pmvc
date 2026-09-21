@@ -11,6 +11,11 @@ datasource db {
 enum UserRole {
   MASTER
   PADRAO
+  // Acesso de leitura a todas as áreas do sistema, sem poder criar, editar ou excluir nada —
+  // aplicado globalmente no middleware authenticate (bloqueia qualquer método que não seja
+  // GET/HEAD/OPTIONS, com exceção das rotas de conta do próprio usuário em /api/auth e das
+  // notificações pessoais em /api/notificacoes).
+  CONSULTA
 }
 
 enum TipoImovel {
