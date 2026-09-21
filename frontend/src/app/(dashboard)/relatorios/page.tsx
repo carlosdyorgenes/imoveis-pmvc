@@ -41,8 +41,10 @@ interface ReportConfig {
   filters?: React.ReactNode
   pdfEndpoint: string
   excelEndpoint?: string
+  wordEndpoint?: string
   pdfFilename: string
   excelFilename?: string
+  wordFilename?: string
 }
 
 export default function RelatoriosPage() {
@@ -60,23 +62,31 @@ export default function RelatoriosPage() {
     enabled: isMaster,
   })
 
-  const handleDownload = async (endpoint: string, filename: string, reportKey: string) => {
-    setLoadingReport(reportKey + filename)
+  const baixarUmFormato = async (endpoint: string, filename: string) => {
+    const params: Record<string, string> = {}
+    if (tipo && endpoint.includes('imoveis')) params.tipo = tipo
+    if (zona && endpoint.includes('imoveis')) params.zona = zona
+    if (fromDate && endpoint.includes('ocorrencias')) params.from = fromDate
+    if (toDate && endpoint.includes('ocorrencias')) params.to = toDate
+    if (statusGeral && endpoint.includes('geral')) params.status = statusGeral
+
+    // O Relatório Geral roda uma análise por IA pra cada demanda — pode levar bem mais tempo
+    // que os demais relatórios (que só consultam o banco), então usa um timeout bem maior.
+    const timeout = endpoint.includes('geral') ? 10 * 60_000 : undefined
+
+    const res = await api.get(endpoint, { responseType: 'blob', params, timeout })
+    downloadBlob(res.data, filename)
+  }
+
+  // Aceita mais de um formato — usado pelo Relatório Geral, que baixa PDF e Word juntos num
+  // clique só. Os demais relatórios continuam passando só um formato, comportamento igual a antes.
+  const handleDownload = async (formatos: { endpoint: string; filename: string }[], reportKey: string) => {
+    setLoadingReport(reportKey + formatos[0].filename)
     try {
-      const params: Record<string, string> = {}
-      if (tipo && endpoint.includes('imoveis')) params.tipo = tipo
-      if (zona && endpoint.includes('imoveis')) params.zona = zona
-      if (fromDate && endpoint.includes('ocorrencias')) params.from = fromDate
-      if (toDate && endpoint.includes('ocorrencias')) params.to = toDate
-      if (statusGeral && endpoint.includes('geral')) params.status = statusGeral
-
-      // O Relatório Geral roda uma análise por IA pra cada demanda — pode levar bem mais tempo
-      // que os demais relatórios (que só consultam o banco), então usa um timeout bem maior.
-      const timeout = endpoint.includes('geral') ? 10 * 60_000 : undefined
-
-      const res = await api.get(endpoint, { responseType: 'blob', params, timeout })
-      downloadBlob(res.data, filename)
-      toast.success('Relatório gerado!')
+      for (const { endpoint, filename } of formatos) {
+        await baixarUmFormato(endpoint, filename)
+      }
+      toast.success(formatos.length > 1 ? 'Relatórios gerados!' : 'Relatório gerado!')
     } catch { toast.error('Erro ao gerar relatório') }
     finally { setLoadingReport(null) }
   }
@@ -88,8 +98,10 @@ export default function RelatoriosPage() {
       icon: <Sparkles className="w-5 h-5 text-indigo-500" />,
       pdfEndpoint: '/api/relatorios/geral/pdf',
       excelEndpoint: '/api/relatorios/geral/excel',
+      wordEndpoint: '/api/relatorios/geral/word',
       pdfFilename: 'relatorio_geral_demandas.pdf',
       excelFilename: 'relatorio_geral_demandas.xlsx',
+      wordFilename: 'relatorio_geral_demandas.docx',
       filters: (
         <select className="input text-xs w-auto" value={statusGeral} onChange={e => setStatusGeral(e.target.value)}>
           <option value="">Todos os status</option>
@@ -252,19 +264,26 @@ export default function RelatoriosPage() {
 
             <div className="flex gap-2">
               <button
-                onClick={() => handleDownload(report.pdfEndpoint, report.pdfFilename, report.title)}
+                onClick={() => handleDownload(
+                  report.wordEndpoint
+                    ? [{ endpoint: report.pdfEndpoint, filename: report.pdfFilename }, { endpoint: report.wordEndpoint, filename: report.wordFilename! }]
+                    : [{ endpoint: report.pdfEndpoint, filename: report.pdfFilename }],
+                  report.title
+                )}
                 disabled={!!loadingReport}
                 className="btn-primary text-xs flex-1 justify-center"
               >
                 {loadingReport === report.title + report.pdfFilename ? (
                   'Gerando...'
+                ) : report.wordEndpoint ? (
+                  <><FileText className="w-3.5 h-3.5" /> PDF + Word</>
                 ) : (
                   <><FileText className="w-3.5 h-3.5" /> PDF</>
                 )}
               </button>
               {report.excelEndpoint && (
                 <button
-                  onClick={() => handleDownload(report.excelEndpoint!, report.excelFilename!, report.title)}
+                  onClick={() => handleDownload([{ endpoint: report.excelEndpoint!, filename: report.excelFilename! }], report.title)}
                   disabled={!!loadingReport}
                   className="btn-secondary text-xs flex-1 justify-center"
                 >

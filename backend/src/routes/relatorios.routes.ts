@@ -1,6 +1,7 @@
 import { Router, Response } from 'express'
 import PDFDocument from 'pdfkit'
 import ExcelJS from 'exceljs'
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, ShadingType, ImageRun, BorderStyle } from 'docx'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -1224,6 +1225,122 @@ relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: 
   }
 
   doc.end()
+})
+
+// ---- Relatório Geral (IA): Word ----
+// Mesmo conteúdo do PDF (cabeçalho, indicadores, três blocos de demandas), montado com a
+// biblioteca docx em vez de desenhado manualmente — formato editável pra quem precisar colar
+// trechos em um ofício/despacho ou ajustar o texto antes de circular.
+
+function paragrafoTituloSecaoDocx(titulo: string, corHex: string): Paragraph {
+  return new Paragraph({
+    shading: { type: ShadingType.SOLID, color: corHex, fill: corHex },
+    spacing: { before: 240, after: 160 },
+    children: [new TextRun({ text: titulo, bold: true, color: 'FFFFFF', size: 24 })],
+  })
+}
+
+function paragrafosBlocoDemandaDocx(l: LinhaRelatorioGeral): Paragraph[] {
+  return [
+    new Paragraph({
+      spacing: { before: 160, after: 40 },
+      children: [new TextRun({ text: `GEP ${l.gep} — ${l.assunto}`, bold: true, color: '1E3A8A', size: 22 })],
+    }),
+    new Paragraph({
+      spacing: { after: 80 },
+      children: [new TextRun({ text: `Status: ${l.status}  |  Criada em: ${formatDate(l.createdAt)}`, italics: true, color: '6B7280', size: 16 })],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.JUSTIFIED,
+      spacing: { after: 120 },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 2, color: 'E5E7EB' } },
+      children: [new TextRun({ text: l.historico, size: 20 })],
+    }),
+  ]
+}
+
+function tabelaSimplesDocx(linhas: { label: string; valor: number | string }[]): Table {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: linhas.map(l => new TableRow({
+      children: [
+        new TableCell({ width: { size: 70, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: l.label, size: 18 })] })] }),
+        new TableCell({ width: { size: 30, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: String(l.valor), size: 18, bold: true })] })] }),
+      ],
+    })),
+  })
+}
+
+function secaoIndicadoresDocx(ind: IndicadoresRelatorioGeral): (Paragraph | Table)[] {
+  const kpis: { label: string; valor: string }[] = [
+    { label: 'Total de demandas', valor: String(ind.totalDemandas) },
+    { label: 'Taxa de atraso (em curso)', valor: `${ind.percentualAtrasadas}% (${ind.totalAtrasadas}/${ind.totalAtivas})` },
+    { label: 'Com pendência externa em aberto', valor: String(ind.comPendenciaExterna) },
+    { label: 'Tempo médio de conclusão', valor: ind.tempoMedioConclusaoDias !== null ? `${ind.tempoMedioConclusaoDias}d` : '—' },
+  ]
+  const blocos: (Paragraph | Table)[] = [
+    paragrafoTituloSecaoDocx('Indicadores', '374151'),
+    tabelaSimplesDocx(kpis),
+  ]
+  if (ind.porStatus.length > 0) {
+    blocos.push(
+      new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: 'Demandas por status', bold: true, color: '1E3A8A', size: 20 })] }),
+      tabelaSimplesDocx(ind.porStatus),
+    )
+  }
+  if (ind.porEquipe.length > 0) {
+    blocos.push(
+      new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: 'Atividades ativas por equipe', bold: true, color: '1E3A8A', size: 20 })] }),
+      tabelaSimplesDocx(ind.porEquipe),
+    )
+  }
+  return blocos
+}
+
+relatoriosRouter.get('/geral/word', requireMaster, async (req: AuthRequest, res: Response) => {
+  const { atualizadas, emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
+  const total = atualizadas.length + emAndamento.length + concluidas.length
+  const subtitulo = comEmissor(`Gerado em ${formatDate(new Date())} — ${total} demanda(s)`, req)
+
+  const cabecalho: Paragraph[] = []
+  if (LOGO_BUFFER) {
+    cabecalho.push(new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [new ImageRun({ data: LOGO_BUFFER, type: 'png', transformation: { width: 150, height: Math.round(150 * (262 / 640)) } })],
+    }))
+  }
+  cabecalho.push(
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 120 }, children: [new TextRun({ text: 'Relatório Geral de Demandas', bold: true, color: '1E3A8A', size: 32 })] }),
+    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Prefeitura Municipal de Vitória da Conquista', color: '6B7280', size: 18 })] }),
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 280 }, children: [new TextRun({ text: subtitulo, color: '6B7280', size: 16 })] }),
+  )
+
+  const corpo: (Paragraph | Table)[] = []
+  if (total > 0) corpo.push(...secaoIndicadoresDocx(indicadores))
+  if (atualizadas.length > 0) {
+    corpo.push(paragrafoTituloSecaoDocx(`Demandas atualizadas (${atualizadas.length})`, 'B45309'))
+    atualizadas.forEach(l => corpo.push(...paragrafosBlocoDemandaDocx(l)))
+  }
+  if (emAndamento.length > 0) {
+    corpo.push(paragrafoTituloSecaoDocx(`Demandas em andamento (${emAndamento.length})`, '1E3A8A'))
+    emAndamento.forEach(l => corpo.push(...paragrafosBlocoDemandaDocx(l)))
+  }
+  if (concluidas.length > 0) {
+    corpo.push(paragrafoTituloSecaoDocx(`Demandas concluídas (${concluidas.length})`, '15803D'))
+    concluidas.forEach(l => corpo.push(...paragrafosBlocoDemandaDocx(l)))
+  }
+  if (total === 0) {
+    corpo.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Nenhuma demanda encontrada para os filtros selecionados.', color: '6B7280' })] }))
+  }
+
+  const documento = new Document({
+    sections: [{ properties: {}, children: [...cabecalho, ...corpo] }],
+  })
+  const buffer = await Packer.toBuffer(documento)
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+  res.setHeader('Content-Disposition', 'attachment; filename=relatorio_geral_demandas.docx')
+  res.send(buffer)
 })
 
 const COLUNAS_RELATORIO_GERAL = [
