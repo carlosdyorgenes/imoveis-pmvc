@@ -19,9 +19,12 @@ export const TRANSICOES_ATIVIDADE: Record<string, string[]> = {
   EM_ANDAMENTO: ['CONCLUIDA', 'AGUARDANDO_INFORMACAO', 'CANCELADA'],
   AGUARDANDO_INFORMACAO: ['EM_ANDAMENTO', 'CANCELADA'],
   CONCLUIDA: ['APROVADA', 'DEVOLVIDA'],
-  DEVOLVIDA: ['EM_ANDAMENTO', 'CANCELADA'],
+  // Além de "retomar" (voltar a EM_ANDAMENTO pra seguir mexendo), o responsável pode finalizar
+  // direto depois de corrigir — sem esse degrau extra, quem já ajustou tudo não tinha como
+  // encerrar a atividade sem antes clicar em "retomar" separadamente.
+  DEVOLVIDA: ['EM_ANDAMENTO', 'CONCLUIDA', 'CANCELADA'],
   APROVADA: ['REABERTA'],
-  REABERTA: ['EM_ANDAMENTO', 'CANCELADA'],
+  REABERTA: ['EM_ANDAMENTO', 'CONCLUIDA', 'CANCELADA'],
   CANCELADA: [],
 }
 

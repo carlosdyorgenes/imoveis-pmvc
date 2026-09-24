@@ -1278,10 +1278,15 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   Retomar atividade
                 </button>
               )}
-              {atividadeModal.status === 'DEVOLVIDA' && isResponsavel(atividadeModal) && (
-                <button onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'EM_ANDAMENTO' })} className="btn-primary w-full justify-center">
-                  Retomar atividade corrigida
-                </button>
+              {['DEVOLVIDA', 'REABERTA'].includes(atividadeModal.status) && isResponsavel(atividadeModal) && !showFinalizar && (
+                <div className="flex gap-2">
+                  <button onClick={() => statusAtividade.mutate({ atividadeId: atividadeModal.id, status: 'EM_ANDAMENTO' })} className="btn-secondary text-xs">
+                    {atividadeModal.status === 'DEVOLVIDA' ? 'Retomar sem finalizar' : 'Retomar atividade'}
+                  </button>
+                  <button onClick={() => setShowFinalizar(true)} className="btn-primary flex-1 justify-center">
+                    <CheckCircle2 className="w-4 h-4" /> Finalizar tarefa
+                  </button>
+                </div>
               )}
               {atividadeModal.status === 'EM_ANDAMENTO' && isResponsavel(atividadeModal) && !showFinalizar && (
                 <div className="flex gap-2">

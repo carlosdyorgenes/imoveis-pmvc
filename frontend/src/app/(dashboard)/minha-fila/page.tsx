@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import { api } from '@/lib/api'
 import { StatusAtividade, Prioridade, TemposAtividade } from '@/types'
-import { ListTodo, Clock, AlertTriangle, ArrowUp, Minus, ArrowDown, Sparkles, RotateCcw } from 'lucide-react'
+import { ListTodo, Clock, AlertTriangle, ArrowUp, Minus, ArrowDown, Sparkles, RotateCcw, Search } from 'lucide-react'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
@@ -58,6 +58,7 @@ type Aba = 'fila' | 'andamento' | 'devolvidas' | 'concluidas' | 'historico'
 
 export default function MinhaFilaPage() {
   const [aba, setAba] = useState<Aba>('fila')
+  const [busca, setBusca] = useState('')
 
   const { data: atividades = [], isLoading } = useQuery<AtividadeFila[]>({
     queryKey: ['minha-fila'],
@@ -93,7 +94,17 @@ export default function MinhaFilaPage() {
     { key: 'historico', label: 'Histórico' },
   ]
 
-  const lista = porAba[aba]
+  // Busca client-side: os dados da fila já vêm inteiros do backend (é só a fila da própria
+  // pessoa), então filtra localmente por GEP, assunto, título ou instruções — mesmo critério
+  // usado na busca de Demandas, só que sem round-trip ao servidor.
+  const listaDaAba = porAba[aba]
+  const buscaNormalizada = busca.trim().toLowerCase()
+  const lista = buscaNormalizada
+    ? listaDaAba.filter(a => {
+        const alvo = `${a.demanda.gepNumero}/${a.demanda.gepAno} ${a.demanda.assunto} ${a.titulo} ${a.instrucoes || ''}`.toLowerCase()
+        return alvo.includes(buscaNormalizada)
+      })
+    : listaDaAba
 
   return (
     <div>
@@ -119,6 +130,18 @@ export default function MinhaFilaPage() {
             <p className={`text-xl font-bold mt-0.5 ${i.cor}`}>{i.valor}</p>
           </div>
         ))}
+      </div>
+
+      <div className="card mb-4 py-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+          <input
+            className="input pl-9"
+            placeholder="Buscar por GEP, assunto, título da atividade ou instruções..."
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+          />
+        </div>
       </div>
 
       <div className="flex gap-1 border-b border-gray-200 mb-4">

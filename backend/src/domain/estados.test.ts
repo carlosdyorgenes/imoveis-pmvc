@@ -63,6 +63,11 @@ describe('máquina de estados — Atividade', () => {
     expect(transicaoValida(TRANSICOES_ATIVIDADE, 'AGUARDANDO_INFORMACAO', 'EM_ANDAMENTO')).toBe(true)
   })
 
+  it('permite finalizar direto a partir de DEVOLVIDA ou REABERTA, sem precisar retomar antes', () => {
+    expect(transicaoValida(TRANSICOES_ATIVIDADE, 'DEVOLVIDA', 'CONCLUIDA')).toBe(true)
+    expect(transicaoValida(TRANSICOES_ATIVIDADE, 'REABERTA', 'CONCLUIDA')).toBe(true)
+  })
+
   it('define corretamente quais status são ações do responsável vs do solicitante', () => {
     expect(AÇÕES_DO_RESPONSAVEL).toEqual(['EM_ANDAMENTO', 'CONCLUIDA'])
     expect(AÇÕES_DO_SOLICITANTE).toEqual(['APROVADA', 'DEVOLVIDA'])
