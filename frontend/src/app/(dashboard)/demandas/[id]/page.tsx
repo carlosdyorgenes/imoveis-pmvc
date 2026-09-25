@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { Demanda, Atividade, StatusAtividade, StatusDemanda, User, Equipe, Prioridade } from '@/types'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check, StickyNote, Download, Users, Eye } from 'lucide-react'
+import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check, StickyNote, Download, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -927,7 +927,10 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                   {(demanda.documentosOutrasEquipes || []).map(d => (
                     <div key={d.id} className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-gray-50 group">
                       {d.arquivoPath ? (
-                        <button onClick={() => baixarArquivo(d.id, d.nome)} className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0 text-left">
+                        <button
+                          onClick={() => podePrevisualizar(d.arquivoMime) ? visualizarArquivo(d.id, d.nome, d.arquivoMime) : baixarArquivo(d.id, d.nome)}
+                          className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0 text-left"
+                        >
                           <FileText className="w-3.5 h-3.5 flex-shrink-0" />
                           <span className="truncate">{d.nome}</span>
                           <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
@@ -938,15 +941,6 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                           <span className="truncate">{d.nome}</span>
                           <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
                         </a>
-                      )}
-                      {d.arquivoPath && podePrevisualizar(d.arquivoMime) && (
-                        <button
-                          onClick={() => visualizarArquivo(d.id, d.nome, d.arquivoMime)}
-                          title="Pré-visualizar"
-                          className="p-1 text-gray-300 hover:text-primary-600 flex-shrink-0"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                        </button>
                       )}
                       <span className="text-[11px] text-gray-400 flex-shrink-0 truncate max-w-[40%]" title={`${d.equipeNome || 'Sem equipe'} · ${d.atividadeTitulo}`}>
                         {d.equipeNome || 'Sem equipe'}
@@ -1139,7 +1133,10 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                     {atividadeModal.documentos.map(d => (
                       <div key={d.id} className="flex items-center gap-2 p-2 rounded-lg border border-gray-200 bg-gray-50 group">
                         {d.arquivoPath ? (
-                          <button onClick={() => baixarArquivo(d.id, d.nome)} className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0 text-left">
+                          <button
+                            onClick={() => podePrevisualizar(d.arquivoMime) ? visualizarArquivo(d.id, d.nome, d.arquivoMime) : baixarArquivo(d.id, d.nome)}
+                            className="flex-1 flex items-center gap-2 text-sm text-primary-700 hover:underline min-w-0 text-left"
+                          >
                             <FileText className="w-3.5 h-3.5 flex-shrink-0" />
                             <span className="truncate">{d.nome}</span>
                             <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
@@ -1150,15 +1147,6 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                             <span className="truncate">{d.nome}</span>
                             <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
                           </a>
-                        )}
-                        {d.arquivoPath && podePrevisualizar(d.arquivoMime) && (
-                          <button
-                            onClick={() => visualizarArquivo(d.id, d.nome, d.arquivoMime)}
-                            title="Pré-visualizar"
-                            className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-primary-600 transition-all flex-shrink-0"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
                         )}
                         {d.arquivoPath && d.arquivoHash && (
                           <button
