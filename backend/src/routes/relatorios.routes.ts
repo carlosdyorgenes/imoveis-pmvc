@@ -97,7 +97,7 @@ function desenharRodapePDF(doc: PDFKit.PDFDocument) {
 // `doc.end()` direto dos relatórios para garantir o rodapé consistente em qualquer relatório.
 function finalizarPDF(doc: PDFKit.PDFDocument) {
   desenharRodapePDF(doc)
-  finalizarPDF(doc)
+  doc.end()
 }
 
 // Cabeçalho padrão de TODOS os relatórios em Excel: título e subtítulo mesclados nas duas
