@@ -76,13 +76,20 @@ function desenharCabecalhoPDF(doc: PDFKit.PDFDocument, titulo: string, subtitulo
 // já geradas do documento (chamado uma única vez, no fim, com bufferPages ativo).
 function desenharRodapePDF(doc: PDFKit.PDFDocument) {
   const range = doc.bufferedPageRange()
+  const margemInferiorOriginal = doc.page.margins.bottom
   for (let i = range.start; i < range.start + range.count; i++) {
     doc.switchToPage(i)
+    // Escrever a essa altura ficaria abaixo da margem inferior normal, o que faz o pdfkit
+    // entender que o conteúdo estourou a página e criar uma página nova automaticamente
+    // (e, combinado com o switchToPage dentro do loop, isso gerava páginas em cascata até
+    // estourar a memória). Zerar a margem enquanto desenha o rodapé evita essa quebra.
+    doc.page.margins.bottom = 0
     const y = doc.page.height - 32
     doc.moveTo(40, y).lineTo(doc.page.width - 40, y).strokeColor(COR_BORDA).lineWidth(0.75).stroke()
     doc.fontSize(7).fillColor(COR_SUBTITULO).font('Helvetica')
-      .text(RODAPE_ENDERECO, 40, y + 5, { align: 'center', width: doc.page.width - 80 })
-      .text(RODAPE_CONTATO, 40, doc.y, { align: 'center', width: doc.page.width - 80 })
+      .text(RODAPE_ENDERECO, 40, y + 5, { align: 'center', width: doc.page.width - 80, lineBreak: false })
+      .text(RODAPE_CONTATO, 40, y + 15, { align: 'center', width: doc.page.width - 80, lineBreak: false })
+    doc.page.margins.bottom = margemInferiorOriginal
   }
 }
 
