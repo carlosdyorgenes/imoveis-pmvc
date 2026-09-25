@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { Demanda, Atividade, StatusAtividade, StatusDemanda, User, Equipe, Prioridade } from '@/types'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check, StickyNote, Download, Users } from 'lucide-react'
+import { ArrowLeft, Plus, X, CheckCircle2, ListChecks, Clock, FileText, Building2, ExternalLink, Trash2, AlertTriangle, ShieldCheck, Repeat, RotateCcw, ArrowUp, Minus, ArrowDown, Pencil, Check, StickyNote, Download, Users, Eye } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -417,6 +417,26 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     } catch {
       toast.error('Erro ao baixar arquivo')
     }
+  }
+
+  // Só PDF e imagem dão pra pré-visualizar direto no navegador — os demais formatos (Word,
+  // Excel, DWG, ZIP...) continuam só com a opção de baixar.
+  const podePrevisualizar = (mime?: string | null) => !!mime && (mime === 'application/pdf' || mime.startsWith('image/'))
+
+  const [preview, setPreview] = useState<{ url: string; mime: string; nome: string } | null>(null)
+  const visualizarArquivo = async (docId: string, nome: string, mime?: string | null) => {
+    try {
+      const res = await api.get(`/api/demandas/documentos/${docId}/arquivo`, { responseType: 'blob' })
+      const tipoFinal = mime || res.data.type || 'application/octet-stream'
+      const url = URL.createObjectURL(new Blob([res.data], { type: tipoFinal }))
+      setPreview({ url, mime: tipoFinal, nome })
+    } catch {
+      toast.error('Erro ao carregar pré-visualização')
+    }
+  }
+  const fecharPreview = () => {
+    if (preview) URL.revokeObjectURL(preview.url)
+    setPreview(null)
   }
 
   const [baixandoZip, setBaixandoZip] = useState(false)
@@ -919,6 +939,15 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                           <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
                         </a>
                       )}
+                      {d.arquivoPath && podePrevisualizar(d.arquivoMime) && (
+                        <button
+                          onClick={() => visualizarArquivo(d.id, d.nome, d.arquivoMime)}
+                          title="Pré-visualizar"
+                          className="p-1 text-gray-300 hover:text-primary-600 flex-shrink-0"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <span className="text-[11px] text-gray-400 flex-shrink-0 truncate max-w-[40%]" title={`${d.equipeNome || 'Sem equipe'} · ${d.atividadeTitulo}`}>
                         {d.equipeNome || 'Sem equipe'}
                       </span>
@@ -1121,6 +1150,15 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
                             <span className="truncate">{d.nome}</span>
                             <span className="text-xs text-gray-400 flex-shrink-0">v{d.versao}</span>
                           </a>
+                        )}
+                        {d.arquivoPath && podePrevisualizar(d.arquivoMime) && (
+                          <button
+                            onClick={() => visualizarArquivo(d.id, d.nome, d.arquivoMime)}
+                            title="Pré-visualizar"
+                            className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-primary-600 transition-all flex-shrink-0"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
                         )}
                         {d.arquivoPath && d.arquivoHash && (
                           <button
@@ -1541,6 +1579,31 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
               >
                 Confirmar finalização
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {preview && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[70] p-4" onClick={fecharPreview}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <p className="font-medium text-gray-800 text-sm truncate pr-4">{preview.nome}</p>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <a href={preview.url} download={preview.nome} className="btn-secondary text-xs">
+                  <Download className="w-3.5 h-3.5" /> Baixar
+                </a>
+                <button onClick={fecharPreview} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden bg-gray-100 flex items-center justify-center">
+              {preview.mime === 'application/pdf' ? (
+                <iframe src={preview.url} title={preview.nome} className="w-full h-full" />
+              ) : (
+                <img src={preview.url} alt={preview.nome} className="max-w-full max-h-full object-contain" />
+              )}
             </div>
           </div>
         </div>

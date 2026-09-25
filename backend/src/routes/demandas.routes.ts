@@ -464,6 +464,7 @@ demandasRouter.get('/:id', async (req: AuthRequest, res) => {
       versao: d.versao,
       linkDrive: d.linkDrive,
       arquivoPath: d.arquivoPath,
+      arquivoMime: d.arquivoMime,
       createdAt: d.createdAt,
       atividadeTitulo: a.titulo,
       equipeNome: a.equipe?.nome || null,

@@ -238,6 +238,7 @@ export interface DocumentoOutraEquipe {
   versao: number
   linkDrive: string
   arquivoPath?: string | null
+  arquivoMime?: string | null
   createdAt: string
   atividadeTitulo: string
   equipeNome: string | null
