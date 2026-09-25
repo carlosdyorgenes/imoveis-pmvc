@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import PDFDocument from 'pdfkit'
 import ExcelJS from 'exceljs'
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, ShadingType, ImageRun, BorderStyle } from 'docx'
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, ShadingType, ImageRun, BorderStyle, Footer } from 'docx'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -18,8 +18,19 @@ relatoriosRouter.use(authenticate)
 // ou baixar nenhum relatório, mesmo sabendo a URL da rota diretamente.
 relatoriosRouter.use(requireMaster)
 
-const LOGO_PATH = path.join(__dirname, '..', 'assets', 'brasao.png')
+const LOGO_PATH = path.join(__dirname, '..', 'assets', 'timbrado_logo.png')
 const LOGO_BUFFER = fs.existsSync(LOGO_PATH) ? fs.readFileSync(LOGO_PATH) : null
+// Proporção real do arquivo (1956x1019) — usada para calcular a altura do logo a partir da
+// largura desejada, em todos os formatos (PDF, Excel, Word).
+const LOGO_PROPORCAO = 1019 / 1956
+
+// Linhas da estrutura organizacional que aparecem sob o logo no timbrado oficial.
+const ORGAO_LINHA_1 = 'SECRETARIA MUNICIPAL DE PLANEJAMENTO E GESTÃO'
+const ORGAO_LINHA_2 = 'COORDENAÇÃO DE GESTÃO DO PATRIMÔNIO PÚBLICO'
+
+// Dados de rodapé do timbrado oficial — mesmos em todos os relatórios.
+const RODAPE_ENDERECO = 'Rua João Pessoa, 253 – Centro – CEP 45000-610 – Vitória da Conquista – BA'
+const RODAPE_CONTATO = 'gerpat.semgi@pmvc.ba.gov.br  ·  www.pmvc.ba.gov.br  ·  (77) 3229-3338'
 
 // timeZone explícito: o servidor roda em UTC (Fly.io), então sem isso os horários dos
 // relatórios saíam adiantados em relação a Brasília/DF.
@@ -40,23 +51,46 @@ const COR_BORDA = '#e5e7eb'
 
 const LOGO_LARGURA = 130
 
-// Cabeçalho padrão de TODOS os relatórios em PDF: brasão, título e "Prefeitura Municipal de
-// Vitória da Conquista" — aparece só na primeira página de cada relatório (páginas seguintes,
-// quando o conteúdo estoura, não repetem o cabeçalho).
+// Cabeçalho padrão de TODOS os relatórios em PDF: logo do timbrado oficial, estrutura
+// organizacional, título e subtítulo — aparece só na primeira página de cada relatório
+// (páginas seguintes, quando o conteúdo estoura, não repetem o cabeçalho).
 function desenharCabecalhoPDF(doc: PDFKit.PDFDocument, titulo: string, subtitulo?: string) {
   if (LOGO_BUFFER) {
     // doc.image já avança doc.y sozinho até a base da imagem — só falta um respiro pequeno
-    // antes do título (somar a altura de novo aqui duplicava o espaço).
+    // antes do texto (somar a altura de novo aqui duplicava o espaço).
     doc.image(LOGO_BUFFER, doc.page.width / 2 - LOGO_LARGURA / 2, doc.y, { width: LOGO_LARGURA })
     doc.y += 6
   }
+  doc.fontSize(8).fillColor(COR_SUBTITULO).font('Helvetica-Bold').text(ORGAO_LINHA_1, { align: 'center' })
+  doc.fontSize(8).fillColor(COR_SUBTITULO).font('Helvetica-Bold').text(ORGAO_LINHA_2, { align: 'center' })
+  doc.moveDown(0.4)
   doc.fontSize(16).fillColor(COR_TITULO).font('Helvetica-Bold').text(titulo, { align: 'center' })
-  doc.fontSize(9).fillColor(COR_SUBTITULO).font('Helvetica').text('Prefeitura Municipal de Vitória da Conquista', { align: 'center' })
-  if (subtitulo) doc.fontSize(8).text(subtitulo, { align: 'center' })
+  if (subtitulo) doc.fontSize(8).fillColor(COR_SUBTITULO).font('Helvetica').text(subtitulo, { align: 'center' })
   doc.moveDown(1)
   doc.moveTo(40, doc.y).lineTo(doc.page.width - 40, doc.y).strokeColor(COR_TITULO).lineWidth(1.5).stroke()
   doc.moveDown(0.8)
   doc.fillColor(COR_TEXTO).font('Helvetica')
+}
+
+// Rodapé padrão em PDF: endereço e contatos do timbrado oficial, desenhado em TODAS as páginas
+// já geradas do documento (chamado uma única vez, no fim, com bufferPages ativo).
+function desenharRodapePDF(doc: PDFKit.PDFDocument) {
+  const range = doc.bufferedPageRange()
+  for (let i = range.start; i < range.start + range.count; i++) {
+    doc.switchToPage(i)
+    const y = doc.page.height - 32
+    doc.moveTo(40, y).lineTo(doc.page.width - 40, y).strokeColor(COR_BORDA).lineWidth(0.75).stroke()
+    doc.fontSize(7).fillColor(COR_SUBTITULO).font('Helvetica')
+      .text(RODAPE_ENDERECO, 40, y + 5, { align: 'center', width: doc.page.width - 80 })
+      .text(RODAPE_CONTATO, 40, doc.y, { align: 'center', width: doc.page.width - 80 })
+  }
+}
+
+// Fecha o PDF desenhando o rodapé em todas as páginas antes de finalizar — substitui todo
+// `doc.end()` direto dos relatórios para garantir o rodapé consistente em qualquer relatório.
+function finalizarPDF(doc: PDFKit.PDFDocument) {
+  desenharRodapePDF(doc)
+  finalizarPDF(doc)
 }
 
 // Cabeçalho padrão de TODOS os relatórios em Excel: título e subtítulo mesclados nas duas
@@ -73,19 +107,27 @@ function montarCabecalhoExcel(ws: ExcelJS.Worksheet, titulo: string, subtitulo: 
   ws.getRow(1).height = 28
 
   ws.mergeCells(2, 1, 2, numCols)
-  const subCell = ws.getCell(2, 1)
+  const orgaoCell = ws.getCell(2, 1)
+  orgaoCell.value = `${ORGAO_LINHA_1} — ${ORGAO_LINHA_2}`
+  orgaoCell.font = { bold: true, size: 8, color: { argb: 'FF6B7280' } }
+  orgaoCell.alignment = { horizontal: 'center' }
+  ws.getRow(2).height = 14
+
+  ws.mergeCells(3, 1, 3, numCols)
+  const subCell = ws.getCell(3, 1)
   subCell.value = subtitulo
   subCell.font = { italic: true, size: 9, color: { argb: 'FF6B7280' } }
   subCell.alignment = { horizontal: 'center' }
-  ws.getRow(2).height = 18
+  ws.getRow(3).height = 18
 
   if (LOGO_BUFFER) {
+    const largura = 70
     const imageId = ws.workbook.addImage({ buffer: LOGO_BUFFER as any, extension: 'png' })
-    ws.addImage(imageId, { tl: { col: 0, row: 0 }, ext: { width: 60, height: 25 } })
+    ws.addImage(imageId, { tl: { col: 0, row: 0 }, ext: { width: largura, height: largura * LOGO_PROPORCAO } })
   }
 
   ws.columns = colunas
-  const headerRowNum = 4
+  const headerRowNum = 5
   ws.getRow(headerRowNum).values = cabecalhos
   const headerRow = ws.getRow(headerRowNum)
   headerRow.eachCell(cell => {
@@ -94,6 +136,8 @@ function montarCabecalhoExcel(ws: ExcelJS.Worksheet, titulo: string, subtitulo: 
     cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
   })
   headerRow.height = 20
+
+  ws.headerFooter.oddFooter = `&"Helvetica"&7&C${RODAPE_ENDERECO}\n${RODAPE_CONTATO}`
 
   return headerRowNum + 1
 }
@@ -117,7 +161,7 @@ relatoriosRouter.get('/imoveis/pdf', async (req: AuthRequest, res: Response) => 
 
   const imoveis = await prisma.imovel.findMany({ where, include: { _count: { select: { ocorrencias: true } } }, orderBy: { createdAt: 'desc' } })
 
-  const doc = new PDFDocument({ margin: 40, size: 'A4', layout: 'landscape' })
+  const doc = new PDFDocument({ margin: 40, size: 'A4', layout: 'landscape', bufferPages: true })
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_imoveis.pdf')
   doc.pipe(res)
@@ -133,7 +177,7 @@ relatoriosRouter.get('/imoveis/pdf', async (req: AuthRequest, res: Response) => 
       .moveDown(0.5)
   })
 
-  doc.end()
+  finalizarPDF(doc)
 })
 
 // ---- Imóveis Excel ----
@@ -209,7 +253,7 @@ relatoriosRouter.get('/ocorrencias/pdf', async (req: AuthRequest, res: Response)
     orderBy: { createdAt: 'desc' }
   })
 
-  const doc = new PDFDocument({ margin: 40 })
+  const doc = new PDFDocument({ margin: 40, bufferPages: true })
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_ocorrencias.pdf')
   doc.pipe(res)
@@ -225,7 +269,7 @@ relatoriosRouter.get('/ocorrencias/pdf', async (req: AuthRequest, res: Response)
       .moveDown(0.6)
   })
 
-  doc.end()
+  finalizarPDF(doc)
 })
 
 // ---- Ocorrências Excel ----
@@ -300,7 +344,7 @@ relatoriosRouter.get('/tarefas/pdf', async (req: AuthRequest, res: Response) => 
     orderBy: { ordem: 'asc' }
   })
 
-  const doc = new PDFDocument({ margin: 40 })
+  const doc = new PDFDocument({ margin: 40, bufferPages: true })
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_tarefas.pdf')
   doc.pipe(res)
@@ -323,7 +367,7 @@ relatoriosRouter.get('/tarefas/pdf', async (req: AuthRequest, res: Response) => 
     doc.moveDown(0.6)
   })
 
-  doc.end()
+  finalizarPDF(doc)
 })
 
 // ---- Tarefas Excel ----
@@ -386,7 +430,7 @@ relatoriosRouter.get('/resumo/pdf', async (req: AuthRequest, res: Response) => {
     prisma.tarefa.count(),
   ])
 
-  const doc = new PDFDocument({ margin: 40 })
+  const doc = new PDFDocument({ margin: 40, bufferPages: true })
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_resumo.pdf')
   doc.pipe(res)
@@ -403,7 +447,7 @@ relatoriosRouter.get('/resumo/pdf', async (req: AuthRequest, res: Response) => {
   doc.fillColor(COR_TEXTO).font('Helvetica').fontSize(11).text(`Total de Ocorrências: ${totalOcorrencias}`)
   doc.text(`Total de Tarefas: ${totalTarefas}`)
 
-  doc.end()
+  finalizarPDF(doc)
 })
 
 // ---- Demandas: dados comuns ----
@@ -430,7 +474,7 @@ const atrasada = (prazo: Date | null) => !!prazo && new Date(prazo) < new Date()
 relatoriosRouter.get('/demandas/pdf', async (req: AuthRequest, res: Response) => {
   const demandas = await buscarDemandasRelatorio(req.query as Record<string, string>)
 
-  const doc = new PDFDocument({ margin: 40 })
+  const doc = new PDFDocument({ margin: 40, bufferPages: true })
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_demandas.pdf')
   doc.pipe(res)
@@ -449,7 +493,7 @@ relatoriosRouter.get('/demandas/pdf', async (req: AuthRequest, res: Response) =>
     doc.moveDown(0.6)
   })
 
-  doc.end()
+  finalizarPDF(doc)
 })
 
 // ---- Demandas Excel ----
@@ -499,7 +543,7 @@ relatoriosRouter.get('/demandas/atrasadas/pdf', async (req: AuthRequest, res: Re
     orderBy: { prazo: 'asc' },
   })
 
-  const doc = new PDFDocument({ margin: 40 })
+  const doc = new PDFDocument({ margin: 40, bufferPages: true })
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_demandas_atrasadas.pdf')
   doc.pipe(res)
@@ -515,7 +559,7 @@ relatoriosRouter.get('/demandas/atrasadas/pdf', async (req: AuthRequest, res: Re
     doc.moveDown(0.4)
   })
 
-  doc.end()
+  finalizarPDF(doc)
 })
 
 // ---- Indicadores gerenciais: tempo médio por área e carga por usuário (restrito ao MASTER) ----
@@ -1198,7 +1242,7 @@ relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: 
   const { atualizadas, emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
   const total = atualizadas.length + emAndamento.length + concluidas.length
 
-  const doc = new PDFDocument({ margin: 40, size: 'A4' })
+  const doc = new PDFDocument({ margin: 40, size: 'A4', bufferPages: true })
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Disposition', 'attachment; filename=relatorio_geral_demandas.pdf')
   doc.pipe(res)
@@ -1224,7 +1268,7 @@ relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: 
     doc.fontSize(11).fillColor(COR_SUBTITULO).text('Nenhuma demanda encontrada para os filtros selecionados.', { align: 'center' })
   }
 
-  doc.end()
+  finalizarPDF(doc)
 })
 
 // ---- Relatório Geral (IA): Word ----
@@ -1306,14 +1350,22 @@ relatoriosRouter.get('/geral/word', requireMaster, async (req: AuthRequest, res:
   if (LOGO_BUFFER) {
     cabecalho.push(new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [new ImageRun({ data: LOGO_BUFFER, type: 'png', transformation: { width: 150, height: Math.round(150 * (262 / 640)) } })],
+      children: [new ImageRun({ data: LOGO_BUFFER, type: 'png', transformation: { width: 150, height: Math.round(150 * LOGO_PROPORCAO) } })],
     }))
   }
   cabecalho.push(
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 80 }, children: [new TextRun({ text: ORGAO_LINHA_1, bold: true, color: '6B7280', size: 15 })] }),
+    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: ORGAO_LINHA_2, bold: true, color: '6B7280', size: 15 })] }),
     new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 120 }, children: [new TextRun({ text: 'Relatório Geral de Demandas', bold: true, color: '1E3A8A', size: 32 })] }),
-    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Prefeitura Municipal de Vitória da Conquista', color: '6B7280', size: 18 })] }),
     new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 280 }, children: [new TextRun({ text: subtitulo, color: '6B7280', size: 16 })] }),
   )
+
+  const rodape = new Footer({
+    children: [
+      new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: RODAPE_ENDERECO, color: '6B7280', size: 14 })] }),
+      new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: RODAPE_CONTATO, color: '6B7280', size: 14 })] }),
+    ],
+  })
 
   const corpo: (Paragraph | Table)[] = []
   if (total > 0) corpo.push(...secaoIndicadoresDocx(indicadores))
@@ -1334,7 +1386,7 @@ relatoriosRouter.get('/geral/word', requireMaster, async (req: AuthRequest, res:
   }
 
   const documento = new Document({
-    sections: [{ properties: {}, children: [...cabecalho, ...corpo] }],
+    sections: [{ properties: {}, footers: { default: rodape }, children: [...cabecalho, ...corpo] }],
   })
   const buffer = await Packer.toBuffer(documento)
 
@@ -1457,18 +1509,28 @@ relatoriosRouter.get('/geral/excel', requireMaster, async (req: AuthRequest, res
   ws.getRow(1).height = 28
 
   ws.mergeCells(2, 1, 2, COLUNAS_RELATORIO_GERAL.length)
-  const subCell = ws.getCell(2, 1)
+  const orgaoCell = ws.getCell(2, 1)
+  orgaoCell.value = `${ORGAO_LINHA_1} — ${ORGAO_LINHA_2}`
+  orgaoCell.font = { bold: true, size: 8, color: { argb: 'FF6B7280' } }
+  orgaoCell.alignment = { horizontal: 'center' }
+  ws.getRow(2).height = 14
+
+  ws.mergeCells(3, 1, 3, COLUNAS_RELATORIO_GERAL.length)
+  const subCell = ws.getCell(3, 1)
   subCell.value = comEmissor(`Gerado em ${formatDate(new Date())} — ${total} demanda(s)`, req)
   subCell.font = { italic: true, size: 9, color: { argb: 'FF6B7280' } }
   subCell.alignment = { horizontal: 'center' }
-  ws.getRow(2).height = 18
+  ws.getRow(3).height = 18
 
   if (LOGO_BUFFER) {
+    const largura = 70
     const imageId = ws.workbook.addImage({ buffer: LOGO_BUFFER as any, extension: 'png' })
-    ws.addImage(imageId, { tl: { col: 0, row: 0 }, ext: { width: 60, height: 25 } })
+    ws.addImage(imageId, { tl: { col: 0, row: 0 }, ext: { width: largura, height: largura * LOGO_PROPORCAO } })
   }
 
-  let proximaLinha = 4
+  ws.headerFooter.oddFooter = `&"Helvetica"&7&C${RODAPE_ENDERECO}\n${RODAPE_CONTATO}`
+
+  let proximaLinha = 5
   if (total > 0) proximaLinha = escreverIndicadoresExcel(ws, proximaLinha, indicadores)
   if (atualizadas.length > 0) {
     proximaLinha = escreverSecaoExcel(ws, proximaLinha, `Demandas atualizadas (${atualizadas.length})`, 'FFB45309', atualizadas)
