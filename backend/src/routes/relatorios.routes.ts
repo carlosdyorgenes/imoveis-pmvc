@@ -893,6 +893,73 @@ Não repita os campos do sistema.
 Não invente informações.
 Retorne somente o texto administrativo final.`
 
+const SYSTEM_PROMPT_DESTAQUES = `Atue como analista administrativo responsável por redigir os DESTAQUES DO PERÍODO que abrem o Relatório Geral de Demandas da Gerência de Patrimônio.
+
+Você receberá:
+* os totais do relatório (demandas atualizadas, em andamento e concluídas);
+* a lista das demandas que tiveram movimentação desde a geração do último relatório, cada uma com o texto de situação atual já consolidado;
+* a lista das demandas concluídas no período;
+* indicadores de atenção (atrasos e pendências externas em aberto).
+
+Sua tarefa é selecionar e redigir os fatos MAIS RELEVANTES do período, para que a chefia compreenda em poucos segundos o que mudou.
+
+REGRAS
+1. Escreva de 3 a 6 destaques, um por linha, em ordem de relevância.
+2. Cada destaque deve ter no máximo 2 frases, iniciando diretamente pelo fato (sem "Destaca-se que", "Cumpre informar", "No período...").
+3. Sempre identifique a demanda pelo número do GEP (ex.: "GEP 10919/2022") e, quando útil, pelo assunto resumido.
+4. Priorize, nesta ordem: demandas concluídas; avanços relevantes (documentos produzidos, análises finalizadas, registros efetivados); pendências externas que travam o andamento; demandas com prazo vencido; devoluções ou correções solicitadas.
+5. Agrupe em um único destaque demandas com o mesmo tipo de movimentação (ex.: "As demandas GEP X, Y e Z tiveram a documentação analisada e aguardam complementação.").
+6. Se houver indicadores de atrasos ou pendências externas em aberto, dedique um destaque a isso.
+7. Baseie-se SOMENTE nas informações recebidas. Não invente fatos, não deduza datas, não cite nomes de pessoas, interessados, solicitantes ou responsáveis.
+8. Não mencione datas. Utilize linguagem administrativa formal, objetiva, em português do Brasil.
+
+FORMATO
+Retorne SOMENTE os destaques, um por linha, sem numeração, sem marcadores, sem título, sem Markdown, sem introdução e sem conclusão.`
+
+// Gera os "Destaques do período" que abrem o relatório: uma única chamada de IA sobre as
+// demandas movimentadas desde o último relatório. Sem movimentação, devolve uma frase fixa sem
+// gastar IA; se a IA falhar, cai num resumo numérico para o relatório nunca sair sem a seção.
+async function gerarDestaquesPeriodo(
+  atualizadas: LinhaRelatorioGeral[],
+  concluidasNoPeriodo: LinhaRelatorioGeral[],
+  totais: { atualizadas: number; emAndamento: number; concluidas: number },
+  ind: IndicadoresRelatorioGeral,
+): Promise<string[]> {
+  if (atualizadas.length === 0 && concluidasNoPeriodo.length === 0) {
+    return ['Não houve movimentação nas demandas desde a geração do último relatório.']
+  }
+
+  const fallback = (): string[] => {
+    const itens: string[] = []
+    if (concluidasNoPeriodo.length > 0) itens.push(`${concluidasNoPeriodo.length} demanda(s) concluída(s) no período: ${concluidasNoPeriodo.map(l => `GEP ${l.gep}`).join(', ')}.`)
+    if (atualizadas.length > 0) itens.push(`${atualizadas.length} demanda(s) com movimentação no período: ${atualizadas.map(l => `GEP ${l.gep}`).join(', ')}.`)
+    if (ind.totalAtrasadas > 0) itens.push(`${ind.totalAtrasadas} demanda(s) em curso com prazo vencido.`)
+    if (ind.comPendenciaExterna > 0) itens.push(`${ind.comPendenciaExterna} demanda(s) com pendência externa em aberto.`)
+    return itens
+  }
+
+  const blocoLista = (titulo: string, linhas: LinhaRelatorioGeral[]) =>
+    linhas.length === 0 ? '' : `${titulo}\n${linhas.map(l => `- GEP ${l.gep} — ${l.assunto}: ${l.historico}`).join('\n')}\n\n`
+
+  const entrada =
+    `Totais do relatório: ${totais.atualizadas} atualizada(s), ${totais.emAndamento} em andamento (sem movimentação), ${totais.concluidas} concluída(s).\n` +
+    `Indicadores de atenção: ${ind.totalAtrasadas} demanda(s) em curso com prazo vencido; ${ind.comPendenciaExterna} com pendência externa em aberto.\n\n` +
+    blocoLista('DEMANDAS CONCLUÍDAS NO PERÍODO:', concluidasNoPeriodo) +
+    blocoLista('DEMANDAS COM MOVIMENTAÇÃO NO PERÍODO (ainda em curso):', atualizadas)
+
+  try {
+    const { texto } = await gerarTextoIA(SYSTEM_PROMPT_DESTAQUES, entrada)
+    const itens = texto
+      .split('\n')
+      .map(l => l.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, '').trim())
+      .filter(Boolean)
+      .slice(0, 8)
+    return itens.length > 0 ? itens : fallback()
+  } catch {
+    return fallback()
+  }
+}
+
 // Remove tags HTML do texto rico (Tiptap) das observações, deixando só texto simples pra
 // entrada da IA — mesma lógica usada no resumo estruturado do frontend, espelhada aqui porque
 // o relatório geral roda inteiramente no backend (processa todas as demandas de uma vez).
@@ -1028,6 +1095,7 @@ interface IndicadoresRelatorioGeral {
 }
 
 interface LinhasRelatorioGeralAgrupadas {
+  destaques: string[]
   atualizadas: LinhaRelatorioGeral[]
   emAndamento: LinhaRelatorioGeral[]
   concluidas: LinhaRelatorioGeral[]
@@ -1145,7 +1213,16 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     porEquipe,
   }
 
-  return { atualizadas, emAndamento, concluidas, indicadores }
+  // Concluídas "no período" = concluídas cuja análise mudou desde o último relatório.
+  const concluidasNoPeriodo = concluidas.filter(l => l.atualizado)
+  const destaques = await gerarDestaquesPeriodo(
+    atualizadas,
+    concluidasNoPeriodo,
+    { atualizadas: atualizadas.length, emAndamento: emAndamento.length, concluidas: concluidas.length },
+    indicadores,
+  )
+
+  return { destaques, atualizadas, emAndamento, concluidas, indicadores }
 }
 
 // ---- Relatório Geral (IA): uma análise por demanda, cobrindo todas as atividades dela ----
@@ -1245,8 +1322,20 @@ function desenharIndicadoresPDF(doc: PDFKit.PDFDocument, ind: IndicadoresRelator
   }
 }
 
+function desenharDestaquesPDF(doc: PDFKit.PDFDocument, destaques: string[]) {
+  desenharTituloSecaoPDF(doc, 'Destaques do período', '#7c2d12')
+  destaques.forEach(texto => {
+    if (doc.y > doc.page.height - 90) doc.addPage()
+    const y = doc.y
+    doc.circle(48, y + 5, 2).fillColor('#7c2d12').fill()
+    doc.fontSize(9.5).fillColor(COR_TEXTO).font('Helvetica').text(texto, 58, y, { width: doc.page.width - 98, align: 'justify' })
+    doc.y += 5
+  })
+  doc.moveDown(0.8)
+}
+
 relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: Response) => {
-  const { atualizadas, emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
+  const { destaques, atualizadas, emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
   const total = atualizadas.length + emAndamento.length + concluidas.length
 
   const doc = new PDFDocument({ margin: 40, size: 'A4', bufferPages: true })
@@ -1257,7 +1346,7 @@ relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: 
   const subtitulo = comEmissor(`Gerado em ${formatDate(new Date())} — ${total} demanda(s)`, req)
   desenharCabecalhoPDF(doc, 'Relatório Geral de Demandas', subtitulo)
 
-  if (total > 0) desenharIndicadoresPDF(doc, indicadores)
+  if (total > 0) desenharDestaquesPDF(doc, destaques)
 
   if (atualizadas.length > 0) {
     desenharTituloSecaoPDF(doc, `Demandas atualizadas (${atualizadas.length})`, '#b45309')
@@ -1273,6 +1362,8 @@ relatoriosRouter.get('/geral/pdf', requireMaster, async (req: AuthRequest, res: 
   }
   if (total === 0) {
     doc.fontSize(11).fillColor(COR_SUBTITULO).text('Nenhuma demanda encontrada para os filtros selecionados.', { align: 'center' })
+  } else {
+    desenharIndicadoresPDF(doc, indicadores)
   }
 
   finalizarPDF(doc)
@@ -1349,7 +1440,7 @@ function secaoIndicadoresDocx(ind: IndicadoresRelatorioGeral): (Paragraph | Tabl
 }
 
 relatoriosRouter.get('/geral/word', requireMaster, async (req: AuthRequest, res: Response) => {
-  const { atualizadas, emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
+  const { destaques, atualizadas, emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
   const total = atualizadas.length + emAndamento.length + concluidas.length
   const subtitulo = comEmissor(`Gerado em ${formatDate(new Date())} — ${total} demanda(s)`, req)
 
@@ -1375,7 +1466,15 @@ relatoriosRouter.get('/geral/word', requireMaster, async (req: AuthRequest, res:
   })
 
   const corpo: (Paragraph | Table)[] = []
-  if (total > 0) corpo.push(...secaoIndicadoresDocx(indicadores))
+  if (total > 0) {
+    corpo.push(paragrafoTituloSecaoDocx('Destaques do período', '7C2D12'))
+    destaques.forEach(t => corpo.push(new Paragraph({
+      bullet: { level: 0 },
+      alignment: AlignmentType.JUSTIFIED,
+      spacing: { after: 80 },
+      children: [new TextRun({ text: t, size: 20 })],
+    })))
+  }
   if (atualizadas.length > 0) {
     corpo.push(paragrafoTituloSecaoDocx(`Demandas atualizadas (${atualizadas.length})`, 'B45309'))
     atualizadas.forEach(l => corpo.push(...paragrafosBlocoDemandaDocx(l)))
@@ -1390,6 +1489,8 @@ relatoriosRouter.get('/geral/word', requireMaster, async (req: AuthRequest, res:
   }
   if (total === 0) {
     corpo.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Nenhuma demanda encontrada para os filtros selecionados.', color: '6B7280' })] }))
+  } else {
+    corpo.push(...secaoIndicadoresDocx(indicadores))
   }
 
   const documento = new Document({
@@ -1501,7 +1602,7 @@ function escreverIndicadoresExcel(ws: ExcelJS.Worksheet, startRow: number, ind: 
 
 // ---- Relatório Geral (IA): Excel ----
 relatoriosRouter.get('/geral/excel', requireMaster, async (req: AuthRequest, res: Response) => {
-  const { atualizadas, emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
+  const { destaques, atualizadas, emAndamento, concluidas, indicadores } = await gerarLinhasRelatorioGeral(req.query as Record<string, string>)
   const total = atualizadas.length + emAndamento.length + concluidas.length
 
   const wb = new ExcelJS.Workbook()
@@ -1538,7 +1639,26 @@ relatoriosRouter.get('/geral/excel', requireMaster, async (req: AuthRequest, res
   ws.headerFooter.oddFooter = `&"Helvetica"&7&C${RODAPE_ENDERECO}\n${RODAPE_CONTATO}`
 
   let proximaLinha = 5
-  if (total > 0) proximaLinha = escreverIndicadoresExcel(ws, proximaLinha, indicadores)
+  if (total > 0) {
+    const numCols = COLUNAS_RELATORIO_GERAL.length
+    ws.mergeCells(proximaLinha, 1, proximaLinha, numCols)
+    const tituloDest = ws.getCell(proximaLinha, 1)
+    tituloDest.value = 'Destaques do período'
+    tituloDest.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } }
+    tituloDest.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C2D12' } }
+    tituloDest.alignment = { vertical: 'middle' }
+    ws.getRow(proximaLinha).height = 20
+    proximaLinha++
+    destaques.forEach(t => {
+      ws.mergeCells(proximaLinha, 1, proximaLinha, numCols)
+      const c = ws.getCell(proximaLinha, 1)
+      c.value = `• ${t}`
+      c.alignment = { wrapText: true, vertical: 'top' }
+      ws.getRow(proximaLinha).height = Math.max(18, Math.ceil(t.length / 150) * 15)
+      proximaLinha++
+    })
+    proximaLinha++
+  }
   if (atualizadas.length > 0) {
     proximaLinha = escreverSecaoExcel(ws, proximaLinha, `Demandas atualizadas (${atualizadas.length})`, 'FFB45309', atualizadas)
   }
@@ -1552,6 +1672,8 @@ relatoriosRouter.get('/geral/excel', requireMaster, async (req: AuthRequest, res
     ws.mergeCells(4, 1, 4, COLUNAS_RELATORIO_GERAL.length)
     ws.getCell(4, 1).value = 'Nenhuma demanda encontrada para os filtros selecionados.'
     ws.getCell(4, 1).alignment = { horizontal: 'center' }
+  } else {
+    escreverIndicadoresExcel(ws, proximaLinha, indicadores)
   }
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
