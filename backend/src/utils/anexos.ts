@@ -89,9 +89,11 @@ export async function processarAnexo(documentoId: string, opcoes: { dryRun?: boo
 
   const salvar = async (dados: { status: string; tipoLeitura?: string | null; texto?: string | null; resumo?: string | null; duplicadoDeId?: string | null; versaoAnteriorId?: string | null; motivo?: string | null }, hash: string | null) => {
     if (dry) return
+    // PostgreSQL rejeita o caractere nulo (0x00), que alguns PDFs trazem no texto extraído.
+    const semNulo = (t?: string | null) => (t == null ? null : t.replace(/\u0000/g, ''))
     const base = {
-      demandaId, arquivoHash: hash, status: dados.status, tipoLeitura: dados.tipoLeitura ?? null, texto: dados.texto ?? null,
-      resumo: dados.resumo ?? null, duplicadoDeId: dados.duplicadoDeId ?? null, versaoAnteriorId: dados.versaoAnteriorId ?? null, motivo: dados.motivo ?? null,
+      demandaId, arquivoHash: hash, status: dados.status, tipoLeitura: dados.tipoLeitura ?? null, texto: semNulo(dados.texto),
+      resumo: semNulo(dados.resumo), duplicadoDeId: dados.duplicadoDeId ?? null, versaoAnteriorId: dados.versaoAnteriorId ?? null, motivo: dados.motivo ?? null,
     }
     await prisma.conteudoAnexo.upsert({ where: { documentoId }, create: { documentoId, ...base }, update: base })
   }
