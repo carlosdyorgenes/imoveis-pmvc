@@ -10,6 +10,8 @@ import { AppError } from '../middleware/errorHandler'
 import { createLog } from '../utils/logger'
 import { notificar } from '../utils/notificar'
 import { gerarTextoIA } from '../utils/ia'
+import { enfileirarProcessamentoAnexo, carregarAnexosParaPrompt, REGRA_ANEXOS_PROMPT } from '../utils/anexos'
+import { formatarSecaoAnexos } from '../domain/anexos'
 import { TRANSICOES_DEMANDA, TRANSICOES_ATIVIDADE, transicaoValida, AÇÕES_DO_RESPONSAVEL, AÇÕES_DO_SOLICITANTE, STATUS_ATIVIDADE_ATIVOS } from '../domain/estados'
 import { calcularTemposAtividade } from '../domain/tempos'
 import { isResponsavelOuEquipeDaAtividade, filtrarAtividadesVisiveis } from '../domain/visibilidade'
@@ -1104,7 +1106,12 @@ demandasRouter.post('/:id/resumo-formal', requireMasterOuConsulta, async (req: A
   })
   if (!demanda) throw new AppError('Demanda não encontrada', 404)
 
-  const { texto: textoFormal, provedor: provedorUsado } = await gerarTextoIA(SYSTEM_PROMPT_RESUMO_IA, texto)
+  const secaoAnexos = formatarSecaoAnexos(await carregarAnexosParaPrompt(demanda.id))
+  const { texto: textoFormal, provedor: provedorUsado } = secaoAnexos
+    ? await gerarTextoIA(SYSTEM_PROMPT_RESUMO_IA + REGRA_ANEXOS_PROMPT, `${texto}
+
+${secaoAnexos}`)
+    : await gerarTextoIA(SYSTEM_PROMPT_RESUMO_IA, texto)
 
   // Guarda o texto gerado (por usuário+demanda) pra poder ser reconsultado sem gastar de novo
   // com IA enquanto nada mudar nas atividades — ver GET .../resumo-consulta.
@@ -1689,6 +1696,7 @@ demandasRouter.post('/atividades/:atividadeId/documentos/upload', (req: AuthRequ
   })
 
   await registrarHistorico(atividade.demandaId, req.user!.id, 'DOCUMENTO_ANEXADO', `Arquivo "${documento.nome}" (v${documento.versao}) enviado na atividade "${atividade.titulo}"`, atividade.id)
+  enfileirarProcessamentoAnexo(documento.id)
   res.status(201).json(documento)
 })
 

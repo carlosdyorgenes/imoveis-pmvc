@@ -42,6 +42,45 @@ export async function gerarViaAnthropic(systemPrompt: string, texto: string): Pr
   return textoFormal
 }
 
+// Lê um arquivo (PDF escaneado ou imagem) diretamente pela Claude, que enxerga o conteúdo
+// visual — usado só quando não há texto extraível localmente. Sem fallback para OpenAI.
+export async function gerarViaAnthropicComArquivo(systemPrompt: string, instrucao: string, arquivo: { base64: string; mime: string }): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new AppError('ANTHROPIC_API_KEY não configurada', 503)
+
+  const bloco = arquivo.mime === 'application/pdf'
+    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: arquivo.base64 } }
+    : { type: 'image', source: { type: 'base64', media_type: arquivo.mime, data: arquivo.base64 } }
+
+  let resposta: Response
+  try {
+    resposta = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-5',
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: [bloco, { type: 'text', text: instrucao }] }],
+      }),
+    })
+  } catch {
+    throw new AppError('Falha de comunicação com a Claude API', 502)
+  }
+  if (!resposta.ok) {
+    let detalhe = ''
+    try {
+      const corpoErro = await resposta.json() as { error?: { message?: string } }
+      detalhe = corpoErro?.error?.message || ''
+    } catch { /* corpo não era JSON válido */ }
+    throw new AppError(`Claude API retornou erro (${resposta.status})${detalhe ? `: ${detalhe}` : ''}`, 502)
+  }
+  const data = await resposta.json() as { content?: { type: string; text?: string }[] }
+  const texto = data.content?.find(c => c.type === 'text')?.text?.trim()
+  if (!texto) throw new AppError('A Claude API não retornou texto', 502)
+  return texto
+}
+
 // Rota alternativa (ChatGPT/OpenAI) usada só quando a Claude API falha — mesmo prompt de
 // sistema, pra manter o mesmo padrão de texto independente de qual provedor respondeu.
 export async function gerarViaOpenAI(systemPrompt: string, texto: string): Promise<string> {

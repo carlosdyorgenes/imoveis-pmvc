@@ -11,6 +11,8 @@ import { AppError } from '../middleware/errorHandler'
 import { calcularTemposAtividade } from '../domain/tempos'
 import { STATUS_ATIVIDADE_ATIVOS } from '../domain/estados'
 import { gerarTextoIA } from '../utils/ia'
+import { carregarAnexosParaPrompt, REGRA_ANEXOS_PROMPT } from '../utils/anexos'
+import { formatarSecaoAnexos } from '../domain/anexos'
 
 export const relatoriosRouter = Router()
 relatoriosRouter.use(authenticate)
@@ -1120,29 +1122,40 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
   })
 
   const linhas = await mapComConcorrencia(demandas, 3, async (d): Promise<LinhaRelatorioGeral> => {
-    const textoEntrada = montarTextoDemandaParaRelatorioGeral(d)
-    // Hash do texto de entrada JUNTO com o próprio prompt de sistema: se nada mudou nas
-    // atividades/checklist/observações/pendências dessa demanda desde a última vez que o
-    // relatório foi gerado, reaproveita a análise já feita em vez de chamar a IA de novo — mas
-    // trocar o prompt (ex.: ajustar as regras de redação) já invalida o cache de todas as
-    // demandas automaticamente, sem precisar limpar a tabela na mão.
-    const assinatura = crypto.createHash('sha256').update(SYSTEM_PROMPT_RELATORIO_GERAL).update(textoEntrada).digest('hex')
+    const textoBase = montarTextoDemandaParaRelatorioGeral(d)
+    const secaoAnexos = formatarSecaoAnexos(await carregarAnexosParaPrompt(d.id))
+    const textoEntrada = secaoAnexos ? `${textoBase}\n\n${secaoAnexos}` : textoBase
+    // Hash do texto (sem anexos) JUNTO com o prompt-base: se nada mudou nas atividades/checklist/
+    // observações/pendências desde a última geração, reaproveita a análise já feita em vez de
+    // chamar a IA de novo — trocar o prompt invalida o cache de todas as demandas sozinho.
+    // Os anexos têm assinatura própria: um anexo novo depois da carga inicial marca a demanda
+    // como atualizada; já a primeira incorporação dos anexos que já existiam (assinaturaAnexos
+    // ainda nula) refaz o texto sem marcar a demanda como atualizada.
+    const assinatura = crypto.createHash('sha256').update(SYSTEM_PROMPT_RELATORIO_GERAL).update(textoBase).digest('hex')
+    const assinaturaAnexos = secaoAnexos ? crypto.createHash('sha256').update(secaoAnexos).digest('hex') : ''
 
     const cache = await prisma.relatorioGeralCache.findUnique({ where: { demandaId: d.id } })
+    const baseIgual = !!cache && cache.assinatura === assinatura
+    const anexosIgual = !!cache && cache.assinaturaAnexos === assinaturaAnexos
+    const legadoSemAnexos = !!cache && cache.assinaturaAnexos === null && assinaturaAnexos === ''
+    const incorporacaoInicial = baseIgual && cache!.assinaturaAnexos === null && assinaturaAnexos !== ''
+
     let historico: string
     let atualizado: boolean
-    if (cache && cache.assinatura === assinatura) {
-      historico = cache.historico
+    if (baseIgual && (anexosIgual || legadoSemAnexos)) {
+      historico = cache!.historico
       atualizado = false
+      if (legadoSemAnexos) await prisma.relatorioGeralCache.update({ where: { demandaId: d.id }, data: { assinaturaAnexos: '' } })
     } else {
-      atualizado = true
+      atualizado = !incorporacaoInicial
       try {
-        const resultado = await gerarTextoIA(SYSTEM_PROMPT_RELATORIO_GERAL, textoEntrada)
+        const prompt = secaoAnexos ? SYSTEM_PROMPT_RELATORIO_GERAL + REGRA_ANEXOS_PROMPT : SYSTEM_PROMPT_RELATORIO_GERAL
+        const resultado = await gerarTextoIA(prompt, textoEntrada)
         historico = resultado.texto
         await prisma.relatorioGeralCache.upsert({
           where: { demandaId: d.id },
-          create: { demandaId: d.id, assinatura, historico, provedor: resultado.provedor },
-          update: { assinatura, historico, provedor: resultado.provedor },
+          create: { demandaId: d.id, assinatura, assinaturaAnexos, historico, provedor: resultado.provedor },
+          update: { assinatura, assinaturaAnexos, historico, provedor: resultado.provedor },
         })
       } catch (e) {
         // Uma demanda com falha na IA não deve derrubar o relatório inteiro — registra o motivo

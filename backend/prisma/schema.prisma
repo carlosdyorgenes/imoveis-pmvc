@@ -216,6 +216,9 @@ model RelatorioGeralCache {
   assinatura   String
   historico    String
   provedor     String
+  // Assinatura da seção de anexos lidos usada na última geração. null = linha anterior ao
+  // recurso de leitura de anexos (ver gerarLinhasRelatorioGeral).
+  assinaturaAnexos String?
   atualizadoEm DateTime @updatedAt
 
   demanda Demanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)
@@ -311,6 +314,7 @@ model DocumentoAtividade {
   createdAt      DateTime @default(now())
 
   atividade Atividade @relation(fields: [atividadeId], references: [id], onDelete: Cascade)
+  conteudo ConteudoAnexo?
 
   @@map("documentos_atividade")
 }
@@ -532,4 +536,31 @@ model Log {
   user User? @relation(fields: [userId], references: [id])
 
   @@map("logs")
+}
+
+// Conteúdo lido de cada arquivo anexado (texto extraído + resumo), calculado no upload ou na
+// carga inicial. Serve de entrada para o Resumo da demanda e o Relatório Geral.
+// status: PENDENTE | LIDO | DUPLICADO | IGNORADO | ERRO
+model ConteudoAnexo {
+  id               String   @id @default(uuid())
+  documentoId      String   @unique
+  demandaId        String
+  arquivoHash      String?
+  status           String   @default("PENDENTE")
+  // TEXTO = extraído do arquivo sem IA; IA = lido pela Claude (visão)
+  tipoLeitura      String?
+  texto            String?  @db.Text
+  resumo           String?  @db.Text
+  // Mesmo arquivo (hash) já anexado antes na mesma demanda — não é descrito de novo.
+  duplicadoDeId    String?
+  // Versão anterior (mesma atividade e mesmo nome) usada para isolar só a parte nova.
+  versaoAnteriorId String?
+  motivo           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  documento DocumentoAtividade @relation(fields: [documentoId], references: [id], onDelete: Cascade)
+
+  @@index([demandaId])
+  @@map("conteudo_anexos")
 }
