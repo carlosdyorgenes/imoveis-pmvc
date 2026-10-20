@@ -25,5 +25,5 @@ primary_region = "gru"
   memory_mb = 512
 
 [[mounts]]
-  source = "imoveis_uploads"
+  source = "imoveis_uploads_hoje"
   destination = "/app/uploads"
