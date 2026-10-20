@@ -3,13 +3,12 @@ import os from 'os'
 import path from 'path'
 import { spawn } from 'child_process'
 import { prisma } from '../lib/prisma'
-import { chaveDeBackup, criptografarArquivo } from './criptografia'
 import { driveConfigurado, garantirPasta, listarArquivos, enviarArquivo, apagarArquivo } from './drive'
 
 const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads', 'documentos')
 const PASTA_RAIZ = 'Backup Imoveis PMVC'
 const DUMPS_MANTIDOS = 30
-const NOME_DUMP = /^imoveis_(\d{4}-\d{2}-\d{2})\.dump\.enc$/
+const NOME_DUMP = /^imoveis_(\d{4}-\d{2}-\d{2})\.dump$/
 
 let emExecucao = false
 
@@ -43,10 +42,9 @@ async function avisarMasters(mensagem: string) {
   }
 }
 
-// Banco: dump criptografado do dia (os últimos 30 ficam). Anexos: só o que ainda não está no
-// Drive (os nomes dos arquivos são UUIDs imutáveis, então o nome basta para saber se já foi).
+// Banco: dump (pg_dump, formato compactado) do dia, os últimos 30 ficam. Anexos: só o que
+// ainda não está no Drive (os nomes dos arquivos são UUIDs imutáveis, então o nome basta).
 async function rodarBackup(): Promise<Record<string, unknown>> {
-  const chave = chaveDeBackup()
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-'))
   try {
     const raiz = await garantirPasta(PASTA_RAIZ)
@@ -54,17 +52,14 @@ async function rodarBackup(): Promise<Record<string, unknown>> {
     const pastaAnexos = await garantirPasta('anexos', raiz)
 
     const hoje = dataBrasilia()
-    const nomeDump = `imoveis_${hoje}.dump.enc`
-    const dumpBruto = path.join(tmp, 'dump.bin')
-    const dumpCifrado = path.join(tmp, nomeDump)
-    await gerarDump(dumpBruto)
-    await criptografarArquivo(dumpBruto, dumpCifrado, chave)
-    fs.rmSync(dumpBruto)
-    const tamanhoDump = fs.statSync(dumpCifrado).size
+    const nomeDump = `imoveis_${hoje}.dump`
+    const dumpArquivo = path.join(tmp, nomeDump)
+    await gerarDump(dumpArquivo)
+    const tamanhoDump = fs.statSync(dumpArquivo).size
 
     const existentes = await listarArquivos(pastaBanco)
-    const novoId = await enviarArquivo(dumpCifrado, nomeDump, pastaBanco)
-    fs.rmSync(dumpCifrado)
+    const novoId = await enviarArquivo(dumpArquivo, nomeDump, pastaBanco)
+    fs.rmSync(dumpArquivo)
     // Só depois do upload novo concluído: remove o dump anterior do mesmo dia e os mais antigos.
     for (const a of existentes.filter(e => e.name === nomeDump && e.id !== novoId)) await apagarArquivo(a.id)
     const datados = existentes.filter(e => NOME_DUMP.test(e.name) && e.name !== nomeDump).sort((a, b) => b.name.localeCompare(a.name))
@@ -75,17 +70,12 @@ async function rodarBackup(): Promise<Record<string, unknown>> {
     let novos = 0
     const falhas: string[] = []
     for (const arquivo of noDisco) {
-      const nomeNoDrive = `${arquivo}.enc`
-      if (jaNoDrive.has(nomeNoDrive)) continue
-      const cifrado = path.join(tmp, nomeNoDrive)
+      if (jaNoDrive.has(arquivo)) continue
       try {
-        await criptografarArquivo(path.join(UPLOADS_DIR, arquivo), cifrado, chave)
-        await enviarArquivo(cifrado, nomeNoDrive, pastaAnexos)
+        await enviarArquivo(path.join(UPLOADS_DIR, arquivo), arquivo, pastaAnexos)
         novos++
       } catch (e) {
         falhas.push(`${arquivo}: ${e instanceof Error ? e.message : 'erro'}`)
-      } finally {
-        fs.rmSync(cifrado, { force: true })
       }
     }
     if (falhas.length > 0) throw new Error(`${falhas.length} anexo(s) não enviados: ${falhas.slice(0, 3).join(' | ')}`)
