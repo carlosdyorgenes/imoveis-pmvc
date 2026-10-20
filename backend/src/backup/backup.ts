@@ -6,7 +6,7 @@ import { prisma } from '../lib/prisma'
 import { driveConfigurado, garantirPasta, listarArquivos, enviarArquivo, apagarArquivo } from './drive'
 
 const UPLOADS_DIR = path.join(__dirname, '..', '..', 'uploads', 'documentos')
-const PASTA_RAIZ = 'Backup Imoveis PMVC'
+const PASTA_RAIZ = process.env.BACKUP_PASTA_RAIZ?.trim() || 'Backup Imoveis PMVC'
 const DUMPS_MANTIDOS = 30
 const NOME_DUMP = /^imoveis_(\d{4}-\d{2}-\d{2})\.dump$/
 

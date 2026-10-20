@@ -43,7 +43,9 @@ async function chamar(url: string, init: RequestInit = {}): Promise<Response> {
 const escapar = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 
 export async function garantirPasta(nome: string, paiId?: string): Promise<string> {
-  const q = [`name='${escapar(nome)}'`, "mimeType='application/vnd.google-apps.folder'", 'trashed=false', paiId ? `'${paiId}' in parents` : "'root' in parents"].join(' and ')
+  // Sem pasta-pai, procura em todo o Drive (com drive.file só aparecem pastas criadas pelo
+  // próprio app) — assim a pasta raiz continua sendo encontrada se você movê-la no Drive.
+  const q = [`name='${escapar(nome)}'`, "mimeType='application/vnd.google-apps.folder'", 'trashed=false', ...(paiId ? [`'${paiId}' in parents`] : [])].join(' and ')
   const lista = await (await chamar(`${API}/files?q=${encodeURIComponent(q)}&fields=files(id)&pageSize=1`)).json() as { files: { id: string }[] }
   if (lista.files[0]) return lista.files[0].id
   const criada = await (await chamar(`${API}/files?fields=id`, {
