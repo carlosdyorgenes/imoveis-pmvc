@@ -11,7 +11,7 @@ RUN mkdir -p dist/assets && cp -r src/assets/. dist/assets/
 
 FROM node:20-alpine
 WORKDIR /app
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl postgresql17-client
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma

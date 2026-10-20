@@ -17,6 +17,8 @@ import { usuariosRouter } from './routes/usuarios.routes'
 import { relatoriosRouter } from './routes/relatorios.routes'
 import { logsRouter } from './routes/logs.routes'
 import { perfisRouter } from './routes/perfis.routes'
+import { backupRouter } from './routes/backup.routes'
+import { iniciarAgendadorBackup } from './backup/backup'
 import { errorHandler } from './middleware/errorHandler'
 
 const app = express()
@@ -44,12 +46,14 @@ app.use('/api/usuarios', usuariosRouter)
 app.use('/api/relatorios', relatoriosRouter)
 app.use('/api/logs', logsRouter)
 app.use('/api/perfis', perfisRouter)
+app.use('/api/backup', backupRouter)
 
 app.use(errorHandler)
 
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
+  iniciarAgendadorBackup()
 })
 
 export default app

@@ -564,3 +564,17 @@ model ConteudoAnexo {
   @@index([demandaId])
   @@map("conteudo_anexos")
 }
+
+// Histórico das execuções do backup diário (banco + anexos) para o Google Drive.
+// status: EM_ANDAMENTO | OK | ERRO
+model BackupExecucao {
+  id           String    @id @default(uuid())
+  origem       String
+  status       String    @default("EM_ANDAMENTO")
+  iniciadoEm   DateTime  @default(now())
+  finalizadoEm DateTime?
+  detalhes     String?   @db.Text
+  erro         String?   @db.Text
+
+  @@map("backup_execucoes")
+}
