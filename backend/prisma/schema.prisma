@@ -219,6 +219,11 @@ model RelatorioGeralCache {
   // Assinatura da seção de anexos lidos usada na última geração. null = linha anterior ao
   // recurso de leitura de anexos (ver gerarLinhasRelatorioGeral).
   assinaturaAnexos String?
+  // Base do período do relatório (ver domain/periodoRelatorio.ts): estado da demanda na última
+  // geração de um dia anterior — o que mudou em relação a ela é "atualizado" no relatório.
+  baseAssinatura        String?
+  baseAssinaturaAnexos  String?
+  baseEm                DateTime?
   atualizadoEm DateTime @updatedAt
 
   demanda Demanda @relation(fields: [demandaId], references: [id], onDelete: Cascade)

@@ -14,7 +14,8 @@ import { gerarTextoIA } from '../utils/ia'
 import { carregarAnexosParaPrompt, REGRA_ANEXOS_PROMPT } from '../utils/anexos'
 import { formatarSecaoAnexos } from '../domain/anexos'
 import { ACAO_INFORMACAO, formatarSecaoInformacoes, REGRA_INFORMACOES_PROMPT } from '../domain/informacoes'
-import { montarNovidades } from '../domain/novidades'
+import { montarNovidades, NovidadesDaDemanda } from '../domain/novidades'
+import { resolverBase, houveAtualizacao } from '../domain/periodoRelatorio'
 
 export const relatoriosRouter = Router()
 relatoriosRouter.use(authenticate)
@@ -38,6 +39,11 @@ const RODAPE_CONTATO = 'gerpat.semgi@pmvc.ba.gov.br  ·  www.pmvc.ba.gov.br  · 
 
 // timeZone explícito: o servidor roda em UTC (Fly.io), então sem isso os horários dos
 // relatórios saíam adiantados em relação a Brasília/DF.
+// Data (AAAA-MM-DD) no horário de Brasília — define o "dia" do período do Relatório Geral.
+function dataBrasilia(d: Date): string {
+  return new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
+}
+
 function formatDate(d: Date) {
   return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
 }
@@ -899,74 +905,76 @@ Retorne somente o texto administrativo final.`
 
 const SYSTEM_PROMPT_DESTAQUES = `Atue como analista administrativo responsável por redigir os DESTAQUES DO PERÍODO que abrem o Relatório Geral de Demandas da Gerência de Patrimônio.
 
-Os destaques são um RESUMO das novas informações que entraram nas demandas desde a geração do último relatório. O detalhamento de cada demanda aparece logo abaixo no próprio relatório, portanto aqui o texto deve ser curto e apenas apontar o que há de novo.
-
-Você receberá:
-* os totais do relatório e indicadores de atenção (atrasos e pendências externas em aberto);
-* para cada demanda com novidade, a lista do que entrou no período, extraída de todas as fontes do sistema: informações registradas diretamente na linha do tempo, documentos anexados (já lidos e resumidos), atualizações de documentos e movimentações das atividades;
-* quando não houver lista de novidades para uma demanda, apenas o texto de situação atual dela.
+Para cada demanda que recebeu novidades desde a geração do último relatório, você receberá a lista do que entrou, extraída das atividades, dos documentos anexados (já lidos e resumidos), das atualizações de documentos e das movimentações. O detalhamento completo de cada demanda aparece logo abaixo no relatório, portanto aqui o texto deve ser curto e apontar apenas o que há de novo.
 
 REGRAS
-1. Trate TODAS as demandas que receberam novas informações: nenhuma demanda com novidade pode ficar de fora.
-2. Seja resumido: no máximo 1 ou 2 frases por demanda, apontando só o fato novo (o que foi informado, anexado, concluído ou encaminhado). Não reescreva a situação completa da demanda.
-3. Agrupe em uma única linha demandas que tenham o mesmo tipo de novidade (ex.: "As demandas GEP X, Y e Z receberam novos documentos e aguardam análise."). No total, o texto não deve passar de 15 linhas.
-4. Ordem: demandas concluídas no período; depois as que receberam informações registradas na linha do tempo; depois novos documentos e atualizações de documentos; depois as demais movimentações; por último, uma linha com os indicadores de atenção (prazos vencidos e pendências externas), se houver.
-5. Identifique sempre a demanda pelo número do GEP (ex.: "GEP 10919/2022") e, quando ajudar, por um assunto resumido.
-6. Quando um documento for uma ATUALIZAÇÃO de versão anterior, destaque apenas o que foi acrescentado.
-7. Baseie-se SOMENTE nas informações recebidas. Não invente fatos, não deduza datas, não cite nomes de pessoas, de arquivos, interessados, solicitantes ou responsáveis.
-8. Não mencione datas. Utilize linguagem administrativa formal, objetiva, em português do Brasil.
+1. Escreva UMA linha por demanda, no formato exato:
+GEP numero/ano :: texto
+usando exatamente o número do GEP recebido. Nunca junte duas demandas na mesma linha e não deixe nenhuma demanda recebida sem linha.
+2. O texto de cada linha deve ter no máximo 2 frases curtas, apontando só o fato novo (documento anexado e o que ele trata, análise concluída, providência encaminhada, atividade concluída ou devolvida). Não repita o título da demanda e não reescreva a situação completa.
+3. Quando um documento for uma ATUALIZAÇÃO de versão anterior, destaque apenas o que foi acrescentado.
+4. Se a demanda vier apenas com o texto de "Situação atual", resuma-o em uma frase.
+5. Baseie-se SOMENTE nas informações recebidas. Não invente fatos, não deduza datas, não cite nomes de pessoas, de arquivos, interessados, solicitantes ou responsáveis.
+6. Não mencione datas. Utilize linguagem administrativa formal, objetiva, em português do Brasil.
 
 FORMATO
-Retorne SOMENTE os destaques, um por linha, sem numeração, sem marcadores, sem título, sem Markdown, sem introdução e sem conclusão.`
+Retorne SOMENTE as linhas no formato "GEP numero/ano :: texto", uma por demanda, sem numeração, sem marcadores, sem título, sem Markdown, sem introdução e sem conclusão.`
 
-// Gera os "Destaques do período" que abrem o relatório: uma única chamada de IA sobre as
-// demandas movimentadas desde o último relatório. Sem movimentação, devolve uma frase fixa sem
-// gastar IA; se a IA falhar, cai num resumo numérico para o relatório nunca sair sem a seção.
+// Gera os "Destaques do período" que abrem o relatório, uma linha por demanda:
+// "GEP número — Título: resumo do que entrou". O sistema monta o prefixo (GEP e título, sem
+// risco de a IA alterá-los) e anexa o TEXTO COMPLETO das informações registradas na linha do
+// tempo; a IA só resume os documentos novos e as movimentações. Sem movimentação devolve uma
+// frase fixa; se a IA falhar, usa as próprias novidades truncadas.
 async function gerarDestaquesPeriodo(
   atualizadas: LinhaRelatorioGeral[],
   concluidasNoPeriodo: LinhaRelatorioGeral[],
-  totais: { atualizadas: number; emAndamento: number; concluidas: number },
   ind: IndicadoresRelatorioGeral,
 ): Promise<string[]> {
   if (atualizadas.length === 0 && concluidasNoPeriodo.length === 0) {
     return ['Não houve movimentação nas demandas desde a geração do último relatório.']
   }
 
-  const fallback = (): string[] => {
-    const itens: string[] = []
-    if (concluidasNoPeriodo.length > 0) itens.push(`${concluidasNoPeriodo.length} demanda(s) concluída(s) no período: ${concluidasNoPeriodo.map(l => `GEP ${l.gep}`).join(', ')}.`)
-    if (atualizadas.length > 0) itens.push(`${atualizadas.length} demanda(s) com movimentação no período: ${atualizadas.map(l => `GEP ${l.gep}`).join(', ')}.`)
-    if (ind.totalAtrasadas > 0) itens.push(`${ind.totalAtrasadas} demanda(s) em curso com prazo vencido.`)
-    if (ind.comPendenciaExterna > 0) itens.push(`${ind.comPendenciaExterna} demanda(s) com pendência externa em aberto.`)
-    return itens
+  // Concluídas primeiro, depois as demais atualizadas (já vêm da mais recente para a mais antiga).
+  const demandas = [...concluidasNoPeriodo, ...atualizadas]
+
+  // Só vão para a IA as demandas com algo além das informações (essas já entram literais).
+  const paraResumir = demandas.filter(l => l.novidades.demais.length > 0 || (l.novidades.informacoes.length === 0 && l.historico.trim()))
+  const resumos = new Map<string, string>()
+  if (paraResumir.length > 0) {
+    const entrada = paraResumir
+      .map(l => `GEP ${l.gep}${l.status === 'CONCLUIDA' ? ' (concluída no período)' : ''}\n${
+        l.novidades.demais.length > 0
+          ? l.novidades.demais.map(n => `  * ${n}`).join('\n')
+          : `  * Situação atual: ${l.historico.slice(0, 400)}`
+      }`)
+      .join('\n\n')
+    try {
+      const { texto } = await gerarTextoIA(SYSTEM_PROMPT_DESTAQUES, entrada)
+      for (const linha of texto.split('\n')) {
+        const m = linha.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, '').match(/^GEP\s+([^\s:]+)\s*::\s*(.+)$/i)
+        if (m) resumos.set(m[1].trim(), m[2].trim())
+      }
+    } catch {
+      // Segue com o resumo de contingência abaixo.
+    }
   }
 
-  // Cada demanda entra com as novidades do período; só quando não há como saber o que é novo
-  // (primeira geração, por exemplo) cai para o texto de situação atual, cortado.
-  const descreverDemanda = (l: LinhaRelatorioGeral) =>
-    l.novidades.length > 0
-      ? `- GEP ${l.gep} — ${l.assunto}\n${l.novidades.map(n => `    * ${n}`).join('\n')}`
-      : `- GEP ${l.gep} — ${l.assunto}\n    * Situação atual: ${l.historico.slice(0, 400)}`
-  const blocoLista = (titulo: string, linhas: LinhaRelatorioGeral[]) =>
-    linhas.length === 0 ? '' : `${titulo}\n${linhas.map(descreverDemanda).join('\n')}\n\n`
+  const itens = demandas.map(l => {
+    const partes: string[] = []
+    if (l.status === 'CONCLUIDA') partes.push('Demanda concluída no período.')
+    const resumo = resumos.get(l.gep) ?? (l.novidades.demais.length > 0 ? l.novidades.demais.slice(0, 2).map(n => n.slice(0, 200)).join(' ') : '')
+    if (resumo && resumo !== '-') partes.push(resumo)
+    for (const info of l.novidades.informacoes) partes.push(`Informação registrada: ${info}`)
+    if (partes.length === 0) partes.push('Movimentação registrada no período.')
+    return `GEP ${l.gep} — ${l.assunto}: ${partes.join(' ')}`
+  })
 
-  const entrada =
-    `Totais do relatório: ${totais.atualizadas} atualizada(s), ${totais.emAndamento} em andamento (sem movimentação), ${totais.concluidas} concluída(s).\n` +
-    `Indicadores de atenção: ${ind.totalAtrasadas} demanda(s) em curso com prazo vencido; ${ind.comPendenciaExterna} com pendência externa em aberto.\n\n` +
-    blocoLista('DEMANDAS CONCLUÍDAS NO PERÍODO:', concluidasNoPeriodo) +
-    blocoLista('DEMANDAS COM MOVIMENTAÇÃO NO PERÍODO (ainda em curso):', atualizadas)
+  const atencao: string[] = []
+  if (ind.totalAtrasadas > 0) atencao.push(`${ind.totalAtrasadas} demanda(s) em curso com prazo vencido`)
+  if (ind.comPendenciaExterna > 0) atencao.push(`${ind.comPendenciaExterna} com pendência externa em aberto`)
+  if (atencao.length > 0) itens.push(`Indicadores de atenção: ${atencao.join('; ')}.`)
 
-  try {
-    const { texto } = await gerarTextoIA(SYSTEM_PROMPT_DESTAQUES, entrada)
-    const itens = texto
-      .split('\n')
-      .map(l => l.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, '').trim())
-      .filter(Boolean)
-      .slice(0, 20)
-    return itens.length > 0 ? itens : fallback()
-  } catch {
-    return fallback()
-  }
+  return itens
 }
 
 // Remove tags HTML do texto rico (Tiptap) das observações, deixando só texto simples pra
@@ -1078,8 +1086,8 @@ interface LinhaRelatorioGeral {
   // true = a análise foi gerada (ou regerada) agora porque algo mudou desde o último relatório;
   // false = nada mudou, reaproveitou a análise já cacheada.
   atualizado: boolean
-  // O que entrou na demanda desde a última geração (vazio se não há geração anterior ou nada novo).
-  novidades: string[]
+  // O que entrou na demanda desde a base do período (vazio se não há relatório anterior ou nada novo).
+  novidades: NovidadesDaDemanda
 }
 
 // Rótulos amigáveis dos status de demanda, pros indicadores (mesmos valores usados no restante
@@ -1131,6 +1139,8 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     orderBy: { createdAt: 'desc' },
   })
 
+  const hojeBrasilia = dataBrasilia(new Date())
+
   const linhas = await mapComConcorrencia(demandas, 3, async (d): Promise<LinhaRelatorioGeral> => {
     // As informações registradas na linha do tempo fazem parte do texto-base: uma informação
     // nova muda a assinatura e marca a demanda como "atualizada" no relatório.
@@ -1152,24 +1162,32 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     const baseIgual = !!cache && cache.assinatura === assinatura
     const anexosIgual = !!cache && cache.assinaturaAnexos === assinaturaAnexos
     const legadoSemAnexos = !!cache && cache.assinaturaAnexos === null && assinaturaAnexos === ''
-    const incorporacaoInicial = baseIgual && cache!.assinaturaAnexos === null && assinaturaAnexos !== ''
+
+    // "Atualizada" = mudou em relação à base do período (último estado de um dia anterior), e não
+    // em relação à última geração: gerar o relatório de novo no mesmo dia (outro formato, outra
+    // tentativa) mostra as mesmas atualizações.
+    const base = resolverBase(cache, hojeBrasilia, dataBrasilia)
+    const atualizado = houveAtualizacao(base, { assinatura, anexos: assinaturaAnexos })
+    const dadosBase = { baseAssinatura: base.assinatura, baseAssinaturaAnexos: base.anexos, baseEm: base.em }
 
     let historico: string
-    let atualizado: boolean
     if (baseIgual && (anexosIgual || legadoSemAnexos)) {
       historico = cache!.historico
-      atualizado = false
-      if (legadoSemAnexos) await prisma.relatorioGeralCache.update({ where: { demandaId: d.id }, data: { assinaturaAnexos: '' } })
+      if (legadoSemAnexos || base.precisaGravar) {
+        await prisma.relatorioGeralCache.update({
+          where: { demandaId: d.id },
+          data: { ...(legadoSemAnexos ? { assinaturaAnexos: '' } : {}), ...(base.precisaGravar ? dadosBase : {}) },
+        })
+      }
     } else {
-      atualizado = !incorporacaoInicial
       try {
         const prompt = SYSTEM_PROMPT_RELATORIO_GERAL + (secaoInformacoes ? REGRA_INFORMACOES_PROMPT : '') + (secaoAnexos ? REGRA_ANEXOS_PROMPT : '')
         const resultado = await gerarTextoIA(prompt, textoEntrada)
         historico = resultado.texto
         await prisma.relatorioGeralCache.upsert({
           where: { demandaId: d.id },
-          create: { demandaId: d.id, assinatura, assinaturaAnexos, historico, provedor: resultado.provedor },
-          update: { assinatura, assinaturaAnexos, historico, provedor: resultado.provedor },
+          create: { demandaId: d.id, assinatura, assinaturaAnexos, historico, provedor: resultado.provedor, ...dadosBase },
+          update: { assinatura, assinaturaAnexos, historico, provedor: resultado.provedor, ...dadosBase },
         })
       } catch (e) {
         // Uma demanda com falha na IA não deve derrubar o relatório inteiro — registra o motivo
@@ -1178,12 +1196,12 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
         historico = `[Não foi possível gerar a análise automática desta demanda: ${e instanceof AppError ? e.message : 'erro inesperado'}]`
       }
     }
-    // Novidades desde a última geração (base dos "Destaques do período"): informações da linha
+    // Novidades desde a base do período (base dos "Destaques do período"): informações da linha
     // do tempo, anexos enviados depois dessa data (pela data do upload, não pela da leitura) e
-    // demais movimentações. Sem geração anterior não há como saber o que é novo.
-    let novidades: string[] = []
-    if (atualizado && cache) {
-      const corte = cache.atualizadoEm
+    // demais movimentações. Sem relatório anterior não há como saber o que é novo.
+    let novidades: NovidadesDaDemanda = { informacoes: [], demais: [] }
+    if (atualizado && base.em) {
+      const corte = base.em
       const [eventos, anexosNovos] = await Promise.all([
         prisma.historicoDemanda.findMany({ where: { demandaId: d.id, createdAt: { gt: corte } }, orderBy: { createdAt: 'asc' }, select: { acao: true, descricao: true } }),
         prisma.conteudoAnexo.findMany({
@@ -1262,12 +1280,7 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
 
   // Concluídas "no período" = concluídas cuja análise mudou desde o último relatório.
   const concluidasNoPeriodo = concluidas.filter(l => l.atualizado)
-  const destaques = await gerarDestaquesPeriodo(
-    atualizadas,
-    concluidasNoPeriodo,
-    { atualizadas: atualizadas.length, emAndamento: emAndamento.length, concluidas: concluidas.length },
-    indicadores,
-  )
+  const destaques = await gerarDestaquesPeriodo(atualizadas, concluidasNoPeriodo, indicadores)
 
   return { destaques, atualizadas, emAndamento, concluidas, indicadores }
 }

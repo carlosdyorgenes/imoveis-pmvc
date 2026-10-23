@@ -3,20 +3,25 @@ import { montarNovidades } from './novidades'
 
 describe('montarNovidades', () => {
   it('vazio quando nada de novo', () => {
-    expect(montarNovidades([], [])).toEqual([])
+    expect(montarNovidades([], [])).toEqual({ informacoes: [], demais: [] })
   })
 
-  it('ordena informações, depois anexos, depois movimentações', () => {
+  it('separa informações (texto completo) de anexos e movimentações', () => {
     const r = montarNovidades(
       [
         { acao: 'STATUS', descricao: 'Atividade X passou para Em andamento' },
-        { acao: 'INFORMACAO', descricao: 'Cartório confirmou  a matrícula' },
+        { acao: 'INFORMACAO', descricao: 'Cartório confirmou  a matrícula\ne pediu complemento.' },
       ],
       [{ nome: 'Parecer', atividadeTitulo: 'Análise', ehAtualizacao: false, resumo: 'Parecer favorável ao registro.' }],
     )
-    expect(r[0]).toBe('Informação registrada na linha do tempo: Cartório confirmou a matrícula')
-    expect(r[1]).toContain('Novo documento anexado à atividade "Análise"')
-    expect(r[2]).toBe('Atividade X passou para Em andamento')
+    expect(r.informacoes).toEqual(['Cartório confirmou a matrícula e pediu complemento.'])
+    expect(r.demais[0]).toContain('Novo documento anexado à atividade "Análise"')
+    expect(r.demais[1]).toBe('Atividade X passou para Em andamento')
+  })
+
+  it('a informação nunca é cortada, mesmo longa', () => {
+    const longa = 'palavra '.repeat(300).trim()
+    expect(montarNovidades([{ acao: 'INFORMACAO', descricao: longa }], []).informacoes[0]).toBe(longa)
   })
 
   it('anexo atualizado destaca só o acréscimo e anexo sem resumo é ignorado', () => {
@@ -24,15 +29,12 @@ describe('montarNovidades', () => {
       { nome: 'Memorial', atividadeTitulo: 'Planta', ehAtualizacao: true, resumo: 'Inclui confrontação.' },
       { nome: 'Vazio', atividadeTitulo: 'Planta', ehAtualizacao: false, resumo: '  ' },
     ])
-    expect(r).toHaveLength(1)
-    expect(r[0]).toContain('Nova versão')
-    expect(r[0]).toContain('acréscimos: Inclui confrontação.')
+    expect(r.demais).toHaveLength(1)
+    expect(r.demais[0]).toContain('acréscimos: Inclui confrontação.')
   })
 
-  it('descarta repetições e limita o tamanho', () => {
+  it('descarta repetições e limita as movimentações', () => {
     const rep = Array.from({ length: 40 }, (_, i) => ({ acao: 'X', descricao: `Evento ${i}` }))
-    expect(montarNovidades([...rep, ...rep], [])).toHaveLength(25)
-    const longo = montarNovidades([{ acao: 'INFORMACAO', descricao: 'a'.repeat(1000) }], [])
-    expect(longo[0].length).toBeLessThan(400)
+    expect(montarNovidades([...rep, ...rep], []).demais).toHaveLength(25)
   })
 })
