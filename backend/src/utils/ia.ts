@@ -3,7 +3,7 @@ import { AppError } from '../middleware/errorHandler'
 // Chama a Claude API (Anthropic) com o prompt de sistema informado. Lança AppError com o
 // motivo real do erro upstream — quem chama decide se tenta a alternativa (OpenAI) ou repassa
 // o erro direto.
-export async function gerarViaAnthropic(systemPrompt: string, texto: string): Promise<string> {
+export async function gerarViaAnthropic(systemPrompt: string, texto: string, maxTokens = 1024): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new AppError('ANTHROPIC_API_KEY não configurada', 503)
 
@@ -18,7 +18,7 @@ export async function gerarViaAnthropic(systemPrompt: string, texto: string): Pr
       },
       body: JSON.stringify({
         model: 'claude-sonnet-5',
-        max_tokens: 1024,
+        max_tokens: maxTokens,
         system: systemPrompt,
         messages: [{ role: 'user', content: texto }],
       }),
@@ -83,7 +83,7 @@ export async function gerarViaAnthropicComArquivo(systemPrompt: string, instruca
 
 // Rota alternativa (ChatGPT/OpenAI) usada só quando a Claude API falha — mesmo prompt de
 // sistema, pra manter o mesmo padrão de texto independente de qual provedor respondeu.
-export async function gerarViaOpenAI(systemPrompt: string, texto: string): Promise<string> {
+export async function gerarViaOpenAI(systemPrompt: string, texto: string, maxTokens = 1024): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) throw new AppError('OPENAI_API_KEY não configurada', 503)
 
@@ -97,7 +97,7 @@ export async function gerarViaOpenAI(systemPrompt: string, texto: string): Promi
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        max_tokens: 1024,
+        max_tokens: maxTokens,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: texto },
@@ -127,17 +127,17 @@ export async function gerarViaOpenAI(systemPrompt: string, texto: string): Promi
 // principal) e, se falhar por qualquer motivo (bloqueio de verificação, créditos, etc.), cai
 // automaticamente pra OpenAI quando ela estiver configurada — mesmo prompt de sistema nos
 // dois, pra manter o texto com o mesmo padrão não importa qual provedor respondeu.
-export async function gerarTextoIA(systemPrompt: string, texto: string): Promise<{ texto: string; provedor: 'claude' | 'openai' }> {
+export async function gerarTextoIA(systemPrompt: string, texto: string, maxTokens = 1024): Promise<{ texto: string; provedor: 'claude' | 'openai' }> {
   if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
     throw new AppError('Geração por IA não configurada neste servidor (nenhum provedor com chave configurada)', 503)
   }
   try {
-    const textoFormal = await gerarViaAnthropic(systemPrompt, texto)
+    const textoFormal = await gerarViaAnthropic(systemPrompt, texto, maxTokens)
     return { texto: textoFormal, provedor: 'claude' }
   } catch (erroClaude) {
     if (!process.env.OPENAI_API_KEY) throw erroClaude
     try {
-      const textoFormal = await gerarViaOpenAI(systemPrompt, texto)
+      const textoFormal = await gerarViaOpenAI(systemPrompt, texto, maxTokens)
       return { texto: textoFormal, provedor: 'openai' }
     } catch {
       // Repassa o erro original da Claude, que é o provedor principal — mais útil pro

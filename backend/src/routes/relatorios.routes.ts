@@ -949,7 +949,7 @@ async function gerarDestaquesPeriodo(
       }`)
       .join('\n\n')
     try {
-      const { texto } = await gerarTextoIA(SYSTEM_PROMPT_DESTAQUES, entrada)
+      const { texto } = await gerarTextoIA(SYSTEM_PROMPT_DESTAQUES, entrada, 4096)
       for (const linha of texto.split('\n')) {
         const m = linha.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, '').match(/^GEP\s+([^\s:]+)\s*::\s*(.+)$/i)
         if (m) resumos.set(m[1].trim(), m[2].trim())
@@ -1388,7 +1388,7 @@ function desenharDestaquesPDF(doc: PDFKit.PDFDocument, destaques: string[]) {
     if (doc.y > doc.page.height - 90) doc.addPage()
     const y = doc.y
     doc.circle(48, y + 5, 2).fillColor('#7c2d12').fill()
-    doc.fontSize(9.5).fillColor(COR_TEXTO).font('Helvetica').text(texto, 58, y, { width: doc.page.width - 98, align: 'justify' })
+    doc.fontSize(9.5).fillColor(COR_TEXTO).font('Helvetica').text(texto, 58, y, { width: doc.page.width - 98, align: 'left' })
     doc.y += 5
   })
   doc.moveDown(0.8)
@@ -1530,7 +1530,7 @@ relatoriosRouter.get('/geral/word', requireMaster, async (req: AuthRequest, res:
     corpo.push(paragrafoTituloSecaoDocx('Destaques do período', '7C2D12'))
     destaques.forEach(t => corpo.push(new Paragraph({
       bullet: { level: 0 },
-      alignment: AlignmentType.JUSTIFIED,
+      alignment: AlignmentType.LEFT,
       spacing: { after: 80 },
       children: [new TextRun({ text: t, size: 20 })],
     })))
