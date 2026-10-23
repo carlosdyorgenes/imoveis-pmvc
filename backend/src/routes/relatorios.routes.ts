@@ -14,6 +14,7 @@ import { gerarTextoIA } from '../utils/ia'
 import { carregarAnexosParaPrompt, REGRA_ANEXOS_PROMPT } from '../utils/anexos'
 import { formatarSecaoAnexos } from '../domain/anexos'
 import { ACAO_INFORMACAO, formatarSecaoInformacoes, REGRA_INFORMACOES_PROMPT } from '../domain/informacoes'
+import { montarNovidades } from '../domain/novidades'
 
 export const relatoriosRouter = Router()
 relatoriosRouter.use(authenticate)
@@ -898,22 +899,21 @@ Retorne somente o texto administrativo final.`
 
 const SYSTEM_PROMPT_DESTAQUES = `Atue como analista administrativo responsável por redigir os DESTAQUES DO PERÍODO que abrem o Relatório Geral de Demandas da Gerência de Patrimônio.
 
-Você receberá:
-* os totais do relatório (demandas atualizadas, em andamento e concluídas);
-* a lista das demandas que tiveram movimentação desde a geração do último relatório, cada uma com o texto de situação atual já consolidado;
-* a lista das demandas concluídas no período;
-* indicadores de atenção (atrasos e pendências externas em aberto).
+Os destaques são um RESUMO das novas informações que entraram nas demandas desde a geração do último relatório. O detalhamento de cada demanda aparece logo abaixo no próprio relatório, portanto aqui o texto deve ser curto e apenas apontar o que há de novo.
 
-Sua tarefa é selecionar e redigir os fatos MAIS RELEVANTES do período, para que a chefia compreenda em poucos segundos o que mudou.
+Você receberá:
+* os totais do relatório e indicadores de atenção (atrasos e pendências externas em aberto);
+* para cada demanda com novidade, a lista do que entrou no período, extraída de todas as fontes do sistema: informações registradas diretamente na linha do tempo, documentos anexados (já lidos e resumidos), atualizações de documentos e movimentações das atividades;
+* quando não houver lista de novidades para uma demanda, apenas o texto de situação atual dela.
 
 REGRAS
-1. Escreva de 3 a 6 destaques, um por linha, em ordem de relevância.
-2. Cada destaque deve ter no máximo 2 frases, iniciando diretamente pelo fato (sem "Destaca-se que", "Cumpre informar", "No período...").
-3. Sempre identifique a demanda pelo número do GEP (ex.: "GEP 10919/2022") e, quando útil, pelo assunto resumido.
-4. Priorize, nesta ordem: demandas concluídas; avanços relevantes (documentos produzidos, análises finalizadas, registros efetivados); pendências externas que travam o andamento; demandas com prazo vencido; devoluções ou correções solicitadas.
-5. Agrupe em um único destaque demandas com o mesmo tipo de movimentação (ex.: "As demandas GEP X, Y e Z tiveram a documentação analisada e aguardam complementação.").
-6. Se houver indicadores de atrasos ou pendências externas em aberto, dedique um destaque a isso.
-7. Baseie-se SOMENTE nas informações recebidas. Não invente fatos, não deduza datas, não cite nomes de pessoas, interessados, solicitantes ou responsáveis.
+1. Trate TODAS as demandas que receberam novas informações: nenhuma demanda com novidade pode ficar de fora.
+2. Seja resumido: no máximo 1 ou 2 frases por demanda, apontando só o fato novo (o que foi informado, anexado, concluído ou encaminhado). Não reescreva a situação completa da demanda.
+3. Agrupe em uma única linha demandas que tenham o mesmo tipo de novidade (ex.: "As demandas GEP X, Y e Z receberam novos documentos e aguardam análise."). No total, o texto não deve passar de 15 linhas.
+4. Ordem: demandas concluídas no período; depois as que receberam informações registradas na linha do tempo; depois novos documentos e atualizações de documentos; depois as demais movimentações; por último, uma linha com os indicadores de atenção (prazos vencidos e pendências externas), se houver.
+5. Identifique sempre a demanda pelo número do GEP (ex.: "GEP 10919/2022") e, quando ajudar, por um assunto resumido.
+6. Quando um documento for uma ATUALIZAÇÃO de versão anterior, destaque apenas o que foi acrescentado.
+7. Baseie-se SOMENTE nas informações recebidas. Não invente fatos, não deduza datas, não cite nomes de pessoas, de arquivos, interessados, solicitantes ou responsáveis.
 8. Não mencione datas. Utilize linguagem administrativa formal, objetiva, em português do Brasil.
 
 FORMATO
@@ -941,8 +941,14 @@ async function gerarDestaquesPeriodo(
     return itens
   }
 
+  // Cada demanda entra com as novidades do período; só quando não há como saber o que é novo
+  // (primeira geração, por exemplo) cai para o texto de situação atual, cortado.
+  const descreverDemanda = (l: LinhaRelatorioGeral) =>
+    l.novidades.length > 0
+      ? `- GEP ${l.gep} — ${l.assunto}\n${l.novidades.map(n => `    * ${n}`).join('\n')}`
+      : `- GEP ${l.gep} — ${l.assunto}\n    * Situação atual: ${l.historico.slice(0, 400)}`
   const blocoLista = (titulo: string, linhas: LinhaRelatorioGeral[]) =>
-    linhas.length === 0 ? '' : `${titulo}\n${linhas.map(l => `- GEP ${l.gep} — ${l.assunto}: ${l.historico}`).join('\n')}\n\n`
+    linhas.length === 0 ? '' : `${titulo}\n${linhas.map(descreverDemanda).join('\n')}\n\n`
 
   const entrada =
     `Totais do relatório: ${totais.atualizadas} atualizada(s), ${totais.emAndamento} em andamento (sem movimentação), ${totais.concluidas} concluída(s).\n` +
@@ -956,7 +962,7 @@ async function gerarDestaquesPeriodo(
       .split('\n')
       .map(l => l.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, '').trim())
       .filter(Boolean)
-      .slice(0, 8)
+      .slice(0, 20)
     return itens.length > 0 ? itens : fallback()
   } catch {
     return fallback()
@@ -1072,6 +1078,8 @@ interface LinhaRelatorioGeral {
   // true = a análise foi gerada (ou regerada) agora porque algo mudou desde o último relatório;
   // false = nada mudou, reaproveitou a análise já cacheada.
   atualizado: boolean
+  // O que entrou na demanda desde a última geração (vazio se não há geração anterior ou nada novo).
+  novidades: string[]
 }
 
 // Rótulos amigáveis dos status de demanda, pros indicadores (mesmos valores usados no restante
@@ -1170,7 +1178,27 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
         historico = `[Não foi possível gerar a análise automática desta demanda: ${e instanceof AppError ? e.message : 'erro inesperado'}]`
       }
     }
-    return { gep: `${d.gepNumero}/${d.gepAno}`, assunto: d.assunto, status: d.status, createdAt: d.createdAt, updatedAt: d.updatedAt, historico, atualizado }
+    // Novidades desde a última geração (base dos "Destaques do período"): informações da linha
+    // do tempo, anexos enviados depois dessa data (pela data do upload, não pela da leitura) e
+    // demais movimentações. Sem geração anterior não há como saber o que é novo.
+    let novidades: string[] = []
+    if (atualizado && cache) {
+      const corte = cache.atualizadoEm
+      const [eventos, anexosNovos] = await Promise.all([
+        prisma.historicoDemanda.findMany({ where: { demandaId: d.id, createdAt: { gt: corte } }, orderBy: { createdAt: 'asc' }, select: { acao: true, descricao: true } }),
+        prisma.conteudoAnexo.findMany({
+          where: { demandaId: d.id, status: 'LIDO', resumo: { not: '' }, documento: { createdAt: { gt: corte } } },
+          orderBy: { documento: { createdAt: 'asc' } },
+          select: { resumo: true, versaoAnteriorId: true, documento: { select: { nome: true, atividade: { select: { titulo: true } } } } },
+        }),
+      ])
+      novidades = montarNovidades(
+        eventos,
+        anexosNovos.map(a => ({ nome: a.documento.nome, atividadeTitulo: a.documento.atividade.titulo, ehAtualizacao: !!a.versaoAnteriorId, resumo: a.resumo ?? '' })),
+        ACAO_INFORMACAO,
+      )
+    }
+    return { gep: `${d.gepNumero}/${d.gepAno}`, assunto: d.assunto, status: d.status, createdAt: d.createdAt, updatedAt: d.updatedAt, historico, atualizado, novidades }
   })
 
   // Bloco 1 — atualizadas: qualquer demanda não concluída que teve alguma movimentação nas
