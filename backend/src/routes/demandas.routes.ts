@@ -12,6 +12,7 @@ import { notificar } from '../utils/notificar'
 import { gerarTextoIA } from '../utils/ia'
 import { enfileirarProcessamentoAnexo, carregarAnexosParaPrompt, REGRA_ANEXOS_PROMPT } from '../utils/anexos'
 import { formatarSecaoAnexos } from '../domain/anexos'
+import { ACAO_INFORMACAO, MAX_CHARS_INFORMACAO, formatarSecaoInformacoes, REGRA_INFORMACOES_PROMPT } from '../domain/informacoes'
 import { TRANSICOES_DEMANDA, TRANSICOES_ATIVIDADE, transicaoValida, AÇÕES_DO_RESPONSAVEL, AÇÕES_DO_SOLICITANTE, STATUS_ATIVIDADE_ATIVOS } from '../domain/estados'
 import { calcularTemposAtividade } from '../domain/tempos'
 import { isResponsavelOuEquipeDaAtividade, filtrarAtividadesVisiveis } from '../domain/visibilidade'
@@ -474,9 +475,20 @@ demandasRouter.get('/:id', async (req: AuthRequest, res) => {
 
   // Mesma lógica do isolamento de atividades: eventos do histórico presos a uma atividade
   // de outra área (criação, status, transferência, documento anexado) ficam ocultos também.
-  const historicoVisivel = vePorCompleto
+  // "Informações" registradas pelo Master na linha do tempo ficam restritas a quem vê tudo
+  // (Master, quem abriu e Consulta) — não aparecem para usuários de setor.
+  const historicoBase = vePorCompleto
     ? demanda.historico
-    : demanda.historico.filter(h => !h.atividadeId || idsAtividadesVisiveis.has(h.atividadeId))
+    : demanda.historico.filter(h => h.acao !== ACAO_INFORMACAO && (!h.atividadeId || idsAtividadesVisiveis.has(h.atividadeId)))
+
+  const idsAutoresInformacao = [...new Set(historicoBase.filter(h => h.acao === ACAO_INFORMACAO && h.userId).map(h => h.userId as string))]
+  const autores = idsAutoresInformacao.length > 0
+    ? await prisma.user.findMany({ where: { id: { in: idsAutoresInformacao } }, select: { id: true, name: true } })
+    : []
+  const nomePorId = new Map(autores.map(a => [a.id, a.name]))
+  const historicoVisivel = historicoBase.map(h =>
+    h.acao === ACAO_INFORMACAO ? { ...h, autorNome: h.userId ? nomePorId.get(h.userId) ?? null : null } : h,
+  )
 
   // Marca como "vista" por este Master agora — some a tag de atualização na listagem até a
   // próxima mudança registrada no histórico da demanda.
@@ -1048,7 +1060,7 @@ function assinaturaAtividadesServidor(demanda: {
   status: string
   atividades: { id: string; status: string; prazo: Date | null; prioridade: string; observacoes: string | null; motivoDevolucao: string | null }[]
   pendenciasExternas: { atividadeId: string | null; orgao: string; descricao: string; status: string }[]
-}): string {
+}, informacoes: string[] = []): string {
   const atividades = demanda.atividades
     .filter(a => a.status !== 'CANCELADA')
     .map(a => ({
@@ -1064,7 +1076,18 @@ function assinaturaAtividadesServidor(demanda: {
         .sort(),
     }))
     .sort((a, b) => a.id.localeCompare(b.id))
-  return JSON.stringify({ status: demanda.status, atividades })
+  // Só entra na assinatura quando existe alguma informação, para não alterar a assinatura (e
+  // marcar como "houve atualização") das demandas que não têm nenhuma.
+  return JSON.stringify(informacoes.length > 0 ? { status: demanda.status, atividades, informacoes } : { status: demanda.status, atividades })
+}
+
+async function textosDeInformacao(demandaId: string): Promise<string[]> {
+  const registros = await prisma.historicoDemanda.findMany({
+    where: { demandaId, acao: ACAO_INFORMACAO },
+    orderBy: { createdAt: 'asc' },
+    select: { descricao: true },
+  })
+  return registros.map(r => r.descricao)
 }
 
 demandasRouter.post('/:id/resumo-consulta', requireMasterOuConsulta, async (req: AuthRequest, res) => {
@@ -1075,7 +1098,7 @@ demandasRouter.post('/:id/resumo-consulta', requireMasterOuConsulta, async (req:
   if (!demanda) throw new AppError('Demanda não encontrada', 404)
 
   const uid = req.user!.id
-  const assinaturaAtual = assinaturaAtividadesServidor(demanda)
+  const assinaturaAtual = assinaturaAtividadesServidor(demanda, await textosDeInformacao(demanda.id))
   const anterior = await prisma.resumoConsulta.findUnique({
     where: { demandaId_userId: { demandaId: demanda.id, userId: uid } },
   })
@@ -1107,16 +1130,19 @@ demandasRouter.post('/:id/resumo-formal', requireMasterOuConsulta, async (req: A
   if (!demanda) throw new AppError('Demanda não encontrada', 404)
 
   const secaoAnexos = formatarSecaoAnexos(await carregarAnexosParaPrompt(demanda.id))
-  const { texto: textoFormal, provedor: provedorUsado } = secaoAnexos
-    ? await gerarTextoIA(SYSTEM_PROMPT_RESUMO_IA + REGRA_ANEXOS_PROMPT, `${texto}
-
-${secaoAnexos}`)
-    : await gerarTextoIA(SYSTEM_PROMPT_RESUMO_IA, texto)
+  const textosInformacao = await textosDeInformacao(demanda.id)
+  const secaoInformacoes = formatarSecaoInformacoes(textosInformacao)
+  const complementos = [secaoInformacoes, secaoAnexos].filter(Boolean)
+  const promptResumo = SYSTEM_PROMPT_RESUMO_IA + (secaoInformacoes ? REGRA_INFORMACOES_PROMPT : '') + (secaoAnexos ? REGRA_ANEXOS_PROMPT : '')
+  const { texto: textoFormal, provedor: provedorUsado } = await gerarTextoIA(
+    promptResumo,
+    complementos.length > 0 ? [texto, ...complementos].join('\n\n') : texto,
+  )
 
   // Guarda o texto gerado (por usuário+demanda) pra poder ser reconsultado sem gastar de novo
   // com IA enquanto nada mudar nas atividades — ver GET .../resumo-consulta.
   const uid = req.user!.id
-  const assinaturaAtual = assinaturaAtividadesServidor(demanda)
+  const assinaturaAtual = assinaturaAtividadesServidor(demanda, textosInformacao)
   await prisma.resumoConsulta.upsert({
     where: { demandaId_userId: { demandaId: demanda.id, userId: uid } },
     create: { demandaId: demanda.id, userId: uid, assinatura: assinaturaAtual, textoProsaIA: textoFormal, provedorProsaIA: provedorUsado },
@@ -1899,6 +1925,42 @@ demandasRouter.delete('/pendencias/:id', async (req: AuthRequest, res) => {
   await reavaliarAguardandoTerceiro(pendencia.demandaId, req.user!.id)
 
   res.json({ message: 'Pendência removida' })
+})
+
+// ===== Informações pontuais na linha do tempo (Master) =====
+// Fatos que a gerência quer deixar registrados na demanda sem criar uma atividade — entram no
+// Resumo da demanda e no Relatório Geral como informação complementar.
+
+function validarTextoInformacao(texto: unknown): string {
+  const limpo = typeof texto === 'string' ? texto.trim() : ''
+  if (!limpo) throw new AppError('Escreva a informação a ser registrada')
+  if (limpo.length > MAX_CHARS_INFORMACAO) throw new AppError(`A informação pode ter no máximo ${MAX_CHARS_INFORMACAO} caracteres`)
+  return limpo
+}
+
+demandasRouter.post('/:id/informacoes', requireMaster, async (req: AuthRequest, res) => {
+  const texto = validarTextoInformacao(req.body.texto)
+  const demanda = await prisma.demanda.findUnique({ where: { id: req.params.id } })
+  if (!demanda) throw new AppError('Demanda não encontrada', 404)
+  const registro = await prisma.historicoDemanda.create({
+    data: { demandaId: demanda.id, userId: req.user!.id, acao: ACAO_INFORMACAO, descricao: texto },
+  })
+  res.status(201).json({ ...registro, autorNome: req.user!.name })
+})
+
+demandasRouter.put('/informacoes/:historicoId', requireMaster, async (req: AuthRequest, res) => {
+  const texto = validarTextoInformacao(req.body.texto)
+  const registro = await prisma.historicoDemanda.findUnique({ where: { id: req.params.historicoId } })
+  if (!registro || registro.acao !== ACAO_INFORMACAO) throw new AppError('Informação não encontrada', 404)
+  const atualizado = await prisma.historicoDemanda.update({ where: { id: registro.id }, data: { descricao: texto } })
+  res.json(atualizado)
+})
+
+demandasRouter.delete('/informacoes/:historicoId', requireMaster, async (req: AuthRequest, res) => {
+  const registro = await prisma.historicoDemanda.findUnique({ where: { id: req.params.historicoId } })
+  if (!registro || registro.acao !== ACAO_INFORMACAO) throw new AppError('Informação não encontrada', 404)
+  await prisma.historicoDemanda.delete({ where: { id: registro.id } })
+  res.json({ message: 'Informação removida' })
 })
 
 // ===== Comentários (com menção simples @Nome) =====

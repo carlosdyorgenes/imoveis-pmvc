@@ -221,6 +221,7 @@ export interface HistoricoDemanda {
   acao: string
   descricao: string
   createdAt: string
+  autorNome?: string | null
 }
 
 export interface Comentario {

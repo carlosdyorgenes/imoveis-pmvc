@@ -13,6 +13,7 @@ import { STATUS_ATIVIDADE_ATIVOS } from '../domain/estados'
 import { gerarTextoIA } from '../utils/ia'
 import { carregarAnexosParaPrompt, REGRA_ANEXOS_PROMPT } from '../utils/anexos'
 import { formatarSecaoAnexos } from '../domain/anexos'
+import { ACAO_INFORMACAO, formatarSecaoInformacoes, REGRA_INFORMACOES_PROMPT } from '../domain/informacoes'
 
 export const relatoriosRouter = Router()
 relatoriosRouter.use(authenticate)
@@ -1117,12 +1118,17 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
         orderBy: { createdAt: 'asc' },
       },
       pendenciasExternas: true,
+      historico: { where: { acao: ACAO_INFORMACAO }, orderBy: { createdAt: 'asc' }, select: { descricao: true } },
     },
     orderBy: { createdAt: 'desc' },
   })
 
   const linhas = await mapComConcorrencia(demandas, 3, async (d): Promise<LinhaRelatorioGeral> => {
-    const textoBase = montarTextoDemandaParaRelatorioGeral(d)
+    // As informações registradas na linha do tempo fazem parte do texto-base: uma informação
+    // nova muda a assinatura e marca a demanda como "atualizada" no relatório.
+    const secaoInformacoes = formatarSecaoInformacoes(d.historico.map(h => h.descricao))
+    const textoBaseAtividades = montarTextoDemandaParaRelatorioGeral(d)
+    const textoBase = secaoInformacoes ? `${textoBaseAtividades}\n\n${secaoInformacoes}` : textoBaseAtividades
     const secaoAnexos = formatarSecaoAnexos(await carregarAnexosParaPrompt(d.id))
     const textoEntrada = secaoAnexos ? `${textoBase}\n\n${secaoAnexos}` : textoBase
     // Hash do texto (sem anexos) JUNTO com o prompt-base: se nada mudou nas atividades/checklist/
@@ -1149,7 +1155,7 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     } else {
       atualizado = !incorporacaoInicial
       try {
-        const prompt = secaoAnexos ? SYSTEM_PROMPT_RELATORIO_GERAL + REGRA_ANEXOS_PROMPT : SYSTEM_PROMPT_RELATORIO_GERAL
+        const prompt = SYSTEM_PROMPT_RELATORIO_GERAL + (secaoInformacoes ? REGRA_INFORMACOES_PROMPT : '') + (secaoAnexos ? REGRA_ANEXOS_PROMPT : '')
         const resultado = await gerarTextoIA(prompt, textoEntrada)
         historico = resultado.texto
         await prisma.relatorioGeralCache.upsert({

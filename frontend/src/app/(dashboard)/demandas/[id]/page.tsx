@@ -480,6 +480,22 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
     onError: (e: any) => toast.error(errMsg(e, 'Erro ao registrar pendência'))
   })
 
+  // Informação pontual registrada na linha do tempo (só Master) — entra no resumo e no relatório.
+  const [infoModal, setInfoModal] = useState<{ historicoId?: string; texto: string } | null>(null)
+  const salvarInformacao = useMutation({
+    mutationFn: (dados: { historicoId?: string; texto: string }) =>
+      dados.historicoId
+        ? api.put(`/api/demandas/informacoes/${dados.historicoId}`, { texto: dados.texto })
+        : api.post(`/api/demandas/${id}/informacoes`, { texto: dados.texto }),
+    onSuccess: () => { invalidar(); setInfoModal(null); toast.success('Informação registrada na linha do tempo') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao registrar a informação')),
+  })
+  const removerInformacao = useMutation({
+    mutationFn: (historicoId: string) => api.delete(`/api/demandas/informacoes/${historicoId}`),
+    onSuccess: () => { invalidar(); toast.success('Informação removida') },
+    onError: (e: any) => toast.error(errMsg(e, 'Erro ao remover a informação')),
+  })
+
   const resolverPendencia = useMutation({
     mutationFn: (pendId: string) => api.put(`/api/demandas/pendencias/${pendId}`, { status: 'RESPONDIDA' }),
     onSuccess: () => { invalidar(); toast.success('Pendência marcada como respondida') },
@@ -819,11 +835,43 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
 
         <div className="space-y-4">
           <div className="card">
-            <h3 className="font-semibold text-sm text-gray-800 mb-2 flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-primary-600" /> Linha do tempo
-            </h3>
+            <div className="flex items-center justify-between mb-2 gap-2">
+              <h3 className="font-semibold text-sm text-gray-800 flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-primary-600" /> Linha do tempo
+              </h3>
+              {isMaster && (
+                <button onClick={() => setInfoModal({ texto: '' })} className="btn-secondary text-xs whitespace-nowrap">
+                  <Plus className="w-3.5 h-3.5" /> Adicionar informação
+                </button>
+              )}
+            </div>
             <div className="space-y-3 max-h-[500px] overflow-y-auto">
-              {(demanda.historico || []).map(h => (
+              {(demanda.historico || []).map(h => h.acao === 'INFORMACAO' ? (
+                <div key={h.id} className="border-l-2 border-amber-400 bg-amber-50 rounded-r-lg pl-3 pr-2 py-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 flex items-center gap-1">
+                      <StickyNote className="w-3 h-3" /> Informação
+                    </span>
+                    {isMaster && (
+                      <span className="flex items-center gap-1">
+                        <button onClick={() => setInfoModal({ historicoId: h.id, texto: h.descricao })} title="Editar" className="p-1 hover:bg-amber-100 rounded">
+                          <Pencil className="w-3 h-3 text-amber-700" />
+                        </button>
+                        <button
+                          onClick={() => { if (confirm('Remover esta informação da linha do tempo?')) removerInformacao.mutate(h.id) }}
+                          title="Remover" className="p-1 hover:bg-amber-100 rounded"
+                        >
+                          <Trash2 className="w-3 h-3 text-red-500" />
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-800 mt-0.5 whitespace-pre-wrap">{h.descricao}</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">
+                    {h.autorNome ? `${h.autorNome} · ` : ''}{format(new Date(h.createdAt), "dd/MM/yy HH:mm", { locale: ptBR })}
+                  </p>
+                </div>
+              ) : (
                 <div key={h.id} className="border-l-2 border-primary-100 pl-3 py-0.5">
                   <p className="text-xs text-gray-700">{h.descricao}</p>
                   <p className="text-[10px] text-gray-400 mt-0.5">
@@ -838,6 +886,42 @@ export default function DemandaDetailPage({ params }: { params: { id: string } }
           </div>
         </div>
       </div>
+
+      {/* Modal informação da linha do tempo */}
+      {infoModal && isMaster && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setInfoModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h2 className="font-semibold text-gray-800">{infoModal.historicoId ? 'Editar informação' : 'Adicionar informação'}</h2>
+              <button onClick={() => setInfoModal(null)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <div className="p-5 space-y-2">
+              <textarea
+                autoFocus
+                className="input min-h-32"
+                maxLength={2000}
+                placeholder="Registre uma informação pontual sobre esta demanda, que não precisa virar atividade..."
+                value={infoModal.texto}
+                onChange={e => setInfoModal({ ...infoModal, texto: e.target.value })}
+              />
+              <p className="text-[11px] text-gray-500 flex justify-between">
+                <span>Fica na linha do tempo (visível só para Master e Consulta) e entra no resumo e no Relatório Geral.</span>
+                <span>{infoModal.texto.length}/2000</span>
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
+              <button onClick={() => setInfoModal(null)} className="btn-secondary">Cancelar</button>
+              <button
+                onClick={() => salvarInformacao.mutate(infoModal)}
+                disabled={!infoModal.texto.trim() || salvarInformacao.isPending}
+                className="btn-primary"
+              >
+                {salvarInformacao.isPending ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal atividade */}
       {atividadeModal && (
