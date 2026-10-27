@@ -1143,6 +1143,7 @@ demandasRouter.post('/:id/resumo-formal', requireMasterOuConsulta, async (req: A
   const { texto: textoFormal, provedor: provedorUsado } = await gerarTextoIA(
     promptResumo,
     complementos.length > 0 ? [texto, ...complementos].join('\n\n') : texto,
+    4096,
   )
 
   // Guarda o texto gerado (por usuário+demanda) pra poder ser reconsultado sem gastar de novo

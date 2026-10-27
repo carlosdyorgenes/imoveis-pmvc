@@ -36,9 +36,11 @@ export async function gerarViaAnthropic(systemPrompt: string, texto: string, max
     throw new AppError(`Claude API retornou erro (${resposta.status})${detalhe ? `: ${detalhe}` : ''}`, 502)
   }
 
-  const data = await resposta.json() as { content?: { type: string; text?: string }[] }
+  const data = await resposta.json() as { content?: { type: string; text?: string }[]; stop_reason?: string }
   const textoFormal = data.content?.find(c => c.type === 'text')?.text?.trim()
   if (!textoFormal) throw new AppError('A Claude API não retornou texto', 502)
+  // Texto cortado pelo limite de tokens nunca deve ser usado nem salvo como se estivesse completo.
+  if (data.stop_reason === 'max_tokens') throw new AppError('A resposta da IA foi cortada por exceder o limite de tamanho', 502)
   return textoFormal
 }
 

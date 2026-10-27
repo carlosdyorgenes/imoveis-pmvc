@@ -1182,7 +1182,7 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     } else {
       try {
         const prompt = SYSTEM_PROMPT_RELATORIO_GERAL + (secaoInformacoes ? REGRA_INFORMACOES_PROMPT : '') + (secaoAnexos ? REGRA_ANEXOS_PROMPT : '')
-        const resultado = await gerarTextoIA(prompt, textoEntrada)
+        const resultado = await gerarTextoIA(prompt, textoEntrada, 2048)
         historico = resultado.texto
         await prisma.relatorioGeralCache.upsert({
           where: { demandaId: d.id },
