@@ -1060,7 +1060,7 @@ function assinaturaAtividadesServidor(demanda: {
   status: string
   atividades: { id: string; status: string; prazo: Date | null; prioridade: string; observacoes: string | null; motivoDevolucao: string | null }[]
   pendenciasExternas: { atividadeId: string | null; orgao: string; descricao: string; status: string }[]
-}, informacoes: string[] = []): string {
+}, informacoes: string[] = [], anexos = ""): string {
   const atividades = demanda.atividades
     .filter(a => a.status !== 'CANCELADA')
     .map(a => ({
@@ -1078,8 +1078,13 @@ function assinaturaAtividadesServidor(demanda: {
     .sort((a, b) => a.id.localeCompare(b.id))
   // Só entra na assinatura quando existe alguma informação, para não alterar a assinatura (e
   // marcar como "houve atualização") das demandas que não têm nenhuma.
-  return JSON.stringify(informacoes.length > 0 ? { status: demanda.status, atividades, informacoes } : { status: demanda.status, atividades })
+  const extras = { ...(informacoes.length > 0 ? { informacoes } : {}), ...(anexos ? { anexos } : {}) }
+  return JSON.stringify({ status: demanda.status, atividades, ...extras })
 }
+
+// Anexos entram na assinatura do resumo: um anexo novo (ou o primeiro resumo feito depois da leitura
+// de anexos) invalida o texto salvo e faz o resumo ser refeito com o conteúdo dos documentos.
+const hashDaSecao = (secao: string) => (secao ? crypto.createHash('sha256').update(secao).digest('hex') : '')
 
 async function textosDeInformacao(demandaId: string): Promise<string[]> {
   const registros = await prisma.historicoDemanda.findMany({
@@ -1098,7 +1103,8 @@ demandasRouter.post('/:id/resumo-consulta', requireMasterOuConsulta, async (req:
   if (!demanda) throw new AppError('Demanda não encontrada', 404)
 
   const uid = req.user!.id
-  const assinaturaAtual = assinaturaAtividadesServidor(demanda, await textosDeInformacao(demanda.id))
+  const secaoAnexosAtual = formatarSecaoAnexos(await carregarAnexosParaPrompt(demanda.id))
+  const assinaturaAtual = assinaturaAtividadesServidor(demanda, await textosDeInformacao(demanda.id), hashDaSecao(secaoAnexosAtual))
   const anterior = await prisma.resumoConsulta.findUnique({
     where: { demandaId_userId: { demandaId: demanda.id, userId: uid } },
   })
@@ -1142,7 +1148,7 @@ demandasRouter.post('/:id/resumo-formal', requireMasterOuConsulta, async (req: A
   // Guarda o texto gerado (por usuário+demanda) pra poder ser reconsultado sem gastar de novo
   // com IA enquanto nada mudar nas atividades — ver GET .../resumo-consulta.
   const uid = req.user!.id
-  const assinaturaAtual = assinaturaAtividadesServidor(demanda, textosInformacao)
+  const assinaturaAtual = assinaturaAtividadesServidor(demanda, textosInformacao, hashDaSecao(secaoAnexos))
   await prisma.resumoConsulta.upsert({
     where: { demandaId_userId: { demandaId: demanda.id, userId: uid } },
     create: { demandaId: demanda.id, userId: uid, assinatura: assinaturaAtual, textoProsaIA: textoFormal, provedorProsaIA: provedorUsado },
