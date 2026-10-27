@@ -12,6 +12,7 @@ import { notificar } from '../utils/notificar'
 import { gerarTextoIA } from '../utils/ia'
 import { enfileirarProcessamentoAnexo, carregarAnexosParaPrompt, REGRA_ANEXOS_PROMPT } from '../utils/anexos'
 import { formatarSecaoAnexos } from '../domain/anexos'
+import { textoPareceCortado } from '../domain/textoIA'
 import { ACAO_INFORMACAO, MAX_CHARS_INFORMACAO, formatarSecaoInformacoes, REGRA_INFORMACOES_PROMPT } from '../domain/informacoes'
 import { TRANSICOES_DEMANDA, TRANSICOES_ATIVIDADE, transicaoValida, AÇÕES_DO_RESPONSAVEL, AÇÕES_DO_SOLICITANTE, STATUS_ATIVIDADE_ATIVOS } from '../domain/estados'
 import { calcularTemposAtividade } from '../domain/tempos'
@@ -1118,10 +1119,12 @@ demandasRouter.post('/:id/resumo-consulta', requireMasterOuConsulta, async (req:
   const comparacao = !anterior ? 'primeira' : anterior.assinatura === assinaturaAtual ? 'nao-houve' : 'houve'
   // Só faz sentido reaproveitar o texto em prosa salvo se nada mudou desde que ele foi gerado —
   // se mudou, o texto antigo já não reflete o estado atual das atividades.
+  // Texto salvo que ficou cortado no meio da frase (limite de tokens antigo) não é reaproveitado.
+  const reaproveitar = comparacao === 'nao-houve' && !!anterior?.textoProsaIA && !textoPareceCortado(anterior.textoProsaIA)
   res.json({
     comparacao,
-    textoProsaIA: comparacao === 'nao-houve' ? anterior?.textoProsaIA ?? null : null,
-    provedorProsaIA: comparacao === 'nao-houve' ? anterior?.provedorProsaIA ?? null : null,
+    textoProsaIA: reaproveitar ? anterior!.textoProsaIA : null,
+    provedorProsaIA: reaproveitar ? anterior!.provedorProsaIA ?? null : null,
   })
 })
 

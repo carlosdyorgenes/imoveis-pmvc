@@ -16,6 +16,7 @@ import { formatarSecaoAnexos } from '../domain/anexos'
 import { ACAO_INFORMACAO, formatarSecaoInformacoes, REGRA_INFORMACOES_PROMPT } from '../domain/informacoes'
 import { montarNovidades, NovidadesDaDemanda } from '../domain/novidades'
 import { resolverBase, houveAtualizacao } from '../domain/periodoRelatorio'
+import { textoPareceCortado } from '../domain/textoIA'
 
 export const relatoriosRouter = Router()
 relatoriosRouter.use(authenticate)
@@ -1171,7 +1172,9 @@ async function gerarLinhasRelatorioGeral(query: Record<string, string>): Promise
     const dadosBase = { baseAssinatura: base.assinatura, baseAssinaturaAnexos: base.anexos, baseEm: base.em }
 
     let historico: string
-    if (baseIgual && (anexosIgual || legadoSemAnexos)) {
+    // Texto guardado que ficou cortado no meio da frase (gerado antes de o limite de tokens ser
+    // corrigido) é refeito mesmo sem mudança — sem afetar o que conta como "atualizada".
+    if (baseIgual && (anexosIgual || legadoSemAnexos) && !textoPareceCortado(cache!.historico)) {
       historico = cache!.historico
       if (legadoSemAnexos || base.precisaGravar) {
         await prisma.relatorioGeralCache.update({
