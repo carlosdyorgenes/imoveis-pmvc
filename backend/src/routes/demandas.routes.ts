@@ -13,6 +13,7 @@ import { gerarTextoIA } from '../utils/ia'
 import { enfileirarProcessamentoAnexo, carregarAnexosParaPrompt, REGRA_ANEXOS_PROMPT } from '../utils/anexos'
 import { formatarSecaoAnexos } from '../domain/anexos'
 import { textoPareceCortado } from '../domain/textoIA'
+import { concluidasPorUltimo } from '../domain/ordenacao'
 import { ACAO_INFORMACAO, MAX_CHARS_INFORMACAO, formatarSecaoInformacoes, REGRA_INFORMACOES_PROMPT } from '../domain/informacoes'
 import { TRANSICOES_DEMANDA, TRANSICOES_ATIVIDADE, transicaoValida, AÇÕES_DO_RESPONSAVEL, AÇÕES_DO_SOLICITANTE, STATUS_ATIVIDADE_ATIVOS } from '../domain/estados'
 import { calcularTemposAtividade } from '../domain/tempos'
@@ -415,10 +416,10 @@ demandasRouter.get('/', async (req: AuthRequest, res) => {
     })
     comOrdenacao.sort((a, b) => b.ultimaAtualizacao.getTime() - a.ultimaAtualizacao.getTime())
 
-    return res.json(comOrdenacao.map(({ demanda, ultimaAtualizacao, houveAtualizacao }) => ({ ...demanda, ultimaAtualizacao, houveAtualizacao })))
+    return res.json(concluidasPorUltimo(comOrdenacao.map(({ demanda, ultimaAtualizacao, houveAtualizacao }) => ({ ...demanda, ultimaAtualizacao, houveAtualizacao }))))
   }
 
-  res.json(demandas.map(d => ({ ...d, ultimaAtualizacao: ultimaPorDemanda.get(d.id) || d.createdAt })))
+  res.json(concluidasPorUltimo(demandas.map(d => ({ ...d, ultimaAtualizacao: ultimaPorDemanda.get(d.id) || d.createdAt }))))
 })
 
 demandasRouter.get('/:id', async (req: AuthRequest, res) => {
